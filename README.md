@@ -50,6 +50,13 @@ dotnet run --project src/TrayPoc/TrayPoc.csproj
 Close the window → the app keeps running in the tray. Tray menu: **Show / Hide /
 About / Quit**. Quit is the only thing that exits the process.
 
+### Single instance
+
+Only one instance runs at a time. The first launch grabs a named **Mutex**; any
+later launch detects it, sends an "activate" message over a **named pipe** so the
+running instance surfaces its window, and then exits. Implemented in
+`Program.cs` (cross-platform — works on both Windows and Linux).
+
 ## Build the Linux AppImage
 
 ```bash
@@ -61,12 +68,25 @@ The script publishes a self-contained build, assembles an `AppDir` (with
 `.desktop` + hicolor icon + `AppRun`), downloads `appimagetool`, and packs the
 AppImage using `--appimage-extract-and-run` (no FUSE required on the build host).
 
-Run it:
+Run it directly:
 
 ```bash
 chmod +x dist/TrayPoc-1.0.0-x86_64.AppImage
 ./dist/TrayPoc-1.0.0-x86_64.AppImage
 ```
+
+Or install it for the current user — this drops a **launcher icon on the Desktop**
+plus an applications-menu entry (`install.sh` ships next to the AppImage in the
+release artifact):
+
+```bash
+./dist/install.sh                 # or: ./dist/install.sh /path/to/TrayPoc-*.AppImage
+./dist/uninstall.sh               # to remove
+```
+
+It copies the AppImage to `~/.local/bin`, the icon to the hicolor theme, and a
+`traypoc.desktop` to both `~/.local/share/applications` and `~/Desktop` (marked
+executable + trusted so GNOME/Zorin renders it).
 
 > End users need FUSE2 to launch an AppImage normally (`sudo apt install libfuse2`),
 > or run with `--appimage-extract-and-run`. A working **system tray / AppIndicator**
@@ -84,9 +104,9 @@ dotnet build packaging/windows/TrayPoc.Installer/TrayPoc.Installer.wixproj -c Re
 # -> packaging/windows/TrayPoc.Installer/bin/.../TrayPoc-1.0.0-win-x64.msi
 ```
 
-The MSI installs to `C:\Program Files\TrayPoc`, adds a Start-menu shortcut, an
-Add/Remove-Programs icon, and a (per-user) **run-at-logon** registry entry so the
-tray app starts with Windows.
+The MSI installs to `C:\Program Files\TrayPoc`, adds **Start-menu and Desktop
+shortcuts**, an Add/Remove-Programs icon, and a (per-user) **run-at-logon**
+registry entry so the tray app starts with Windows.
 
 ## CI / CD — GitHub Actions
 

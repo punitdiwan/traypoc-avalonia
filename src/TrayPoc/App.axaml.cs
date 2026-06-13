@@ -43,6 +43,9 @@ public partial class App : Application
 
             desktop.MainWindow = _mainWindow;
             _mainWindow.Show();
+
+            // A second launch signals this instance to surface the window.
+            Program.StartActivationListener(ShowWindow);
         }
 
         base.OnFrameworkInitializationCompleted();

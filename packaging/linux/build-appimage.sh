@@ -72,5 +72,10 @@ mkdir -p "$DIST_DIR"
 # ARCH env is required by appimagetool; extract-and-run avoids needing FUSE.
 ARCH="$APPIMAGE_ARCH" "$TOOL" --appimage-extract-and-run "$BUILD_DIR" "$OUTPUT"
 
+# Ship the installer helpers next to the AppImage so a downloaded artifact can
+# create a Desktop icon + menu entry without the source tree.
+cp "$SCRIPT_DIR/install.sh" "$SCRIPT_DIR/uninstall.sh" "$DIST_DIR/"
+chmod +x "$DIST_DIR/install.sh" "$DIST_DIR/uninstall.sh"
+
 echo ">> Done: $OUTPUT"
-ls -lh "$OUTPUT"
+ls -lh "$OUTPUT" "$DIST_DIR/install.sh"

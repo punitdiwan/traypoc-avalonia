@@ -33,6 +33,9 @@
       <Directory Id="AppProgramMenuDir" Name="TrayPoc" />
     </StandardDirectory>
 
+    <!-- Desktop (for the desktop shortcut) -->
+    <StandardDirectory Id="DesktopFolder" />
+
     <!-- Harvest every published file into Program Files\TrayPoc -->
     <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
       <!-- Bitness comes from the package arch (InstallerPlatform=x64 in the .wixproj). -->
@@ -51,6 +54,17 @@
       <RegistryValue Root="HKCU" Key="Software\TrayPoc" Name="installed" Type="integer" Value="1" KeyPath="yes" />
     </Component>
 
+    <!-- Desktop shortcut -->
+    <Component Id="DesktopShortcut" Directory="DesktopFolder" Guid="3c5f7a91-8d22-4e63-9a04-1b7e6c2d9f03" Bitness="always64">
+      <Shortcut Id="TrayPocDesktop"
+                Name="TrayPoc"
+                Description="Avalonia cross-platform tray POC"
+                Target="[INSTALLFOLDER]TrayPoc.exe"
+                WorkingDirectory="INSTALLFOLDER"
+                Icon="TrayPocIcon" />
+      <RegistryValue Root="HKCU" Key="Software\TrayPoc" Name="desktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
     <!-- Optional: launch at Windows logon (current user). A tray app usually wants this. -->
     <Component Id="RunAtStartup" Directory="INSTALLFOLDER" Guid="2d8e6c14-5a09-4b7e-9d33-c1b6f4e8a703" Bitness="always64">
       <RegistryValue Root="HKCU"
@@ -64,6 +78,7 @@
     <Feature Id="Main" Title="TrayPoc" Level="1">
       <ComponentGroupRef Id="AppFiles" />
       <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="DesktopShortcut" />
     </Feature>
 
     <!-- Run-at-startup is a separate, optional feature -->

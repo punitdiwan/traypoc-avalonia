@@ -1,4 +1,3 @@
-using System;
 using System.Runtime.InteropServices;
 using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -15,10 +14,4 @@ public partial class MainWindowViewModel : ViewModelBase
 
     [ObservableProperty]
     private string _status = "Running. Close the window to keep the app alive in the system tray.";
-
-    public void ShowAbout()
-    {
-        Status = $"TrayPoc POC • Avalonia UI • {RuntimeInformation.FrameworkDescription} • " +
-                 $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}";
-    }
 }

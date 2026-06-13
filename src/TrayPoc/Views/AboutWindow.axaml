@@ -1,0 +1,38 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="420" d:DesignHeight="320"
+        x:Class="TrayPoc.Views.AboutWindow"
+        Icon="/Assets/tray-icon.ico"
+        Title="About TrayPoc"
+        Width="420" Height="320"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner">
+
+    <Border Padding="24">
+        <StackPanel Spacing="14">
+            <StackPanel Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                <Image Source="/Assets/tray-icon-128.png" Width="56" Height="56"/>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="TrayPoc" FontSize="22" FontWeight="Bold"/>
+                    <TextBlock x:Name="VersionText" Foreground="#888" FontSize="13"/>
+                </StackPanel>
+            </StackPanel>
+
+            <TextBlock Text="Avalonia cross-platform system-tray proof of concept."
+                       TextWrapping="Wrap"/>
+
+            <Border Background="#11000000" CornerRadius="8" Padding="12">
+                <TextBlock x:Name="RuntimeText" FontFamily="monospace" FontSize="12"/>
+            </Border>
+
+            <HyperlinkButton x:Name="RepoLink" Content="Project on GitHub"
+                             HorizontalAlignment="Left" Padding="0"/>
+
+            <TextBlock Text="© 2026 TrayPoc · MIT" FontSize="11" Foreground="#999"/>
+
+            <Button Content="Close" Click="Close_OnClick" HorizontalAlignment="Right"/>
+        </StackPanel>
+    </Border>
+</Window>

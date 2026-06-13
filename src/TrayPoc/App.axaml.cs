@@ -1,8 +1,10 @@
 using System;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using TrayPoc.Services;
 using TrayPoc.ViewModels;
 using TrayPoc.Views;
 
@@ -42,13 +44,59 @@ public partial class App : Application
             };
 
             desktop.MainWindow = _mainWindow;
-            _mainWindow.Show();
 
-            // A second launch signals this instance to surface the window.
-            Program.StartActivationListener(ShowWindow);
+            // Check for a newer release before showing the UI. If one is found
+            // it is installed and the app relaunches; otherwise we just start
+            // normally on the current version.
+            _ = RunStartupAsync();
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    /// <summary>
+    /// Startup gate: applies a pending update if there is one (then quits so the
+    /// relaunch helper can take over), otherwise launches the current version.
+    /// Best-effort — any failure falls through to a normal launch.
+    /// </summary>
+    private async Task RunStartupAsync()
+    {
+        try
+        {
+            var update = await UpdateService.CheckForUpdateAsync();
+            if (update is not null)
+            {
+                var window = new UpdateWindow();
+                window.SetStatus($"Updating to version {update.Version}…");
+                window.Show();
+
+                var applied = await UpdateService.DownloadAndApplyAsync(update, window.Progress);
+                if (applied)
+                {
+                    // The helper will install the update and relaunch the app
+                    // once this process exits, so quit now.
+                    RequestExit();
+                    return;
+                }
+
+                window.Close();
+            }
+        }
+        catch
+        {
+            // Best-effort: never block startup on the updater.
+        }
+
+        StartNormally();
+    }
+
+    /// <summary>Shows the main window and begins listening for second-launch activations.</summary>
+    private void StartNormally()
+    {
+        _mainWindow?.Show();
+
+        // A second launch signals this instance to surface the window.
+        Program.StartActivationListener(ShowWindow);
     }
 
     private void ShowWindow()
@@ -71,8 +119,8 @@ public partial class App : Application
     private void About_OnClick(object? sender, EventArgs e)
     {
         ShowWindow();
-        if (_mainWindow?.DataContext is MainWindowViewModel vm)
-            vm.ShowAbout();
+        if (_mainWindow is not null)
+            new Views.AboutWindow().ShowDialog(_mainWindow);
     }
 
     private void Quit_OnClick(object? sender, EventArgs e) => RequestExit();

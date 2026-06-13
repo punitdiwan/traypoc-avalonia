@@ -12,10 +12,7 @@ public partial class MainWindow : Window
     }
 
     private void About_OnClick(object? sender, RoutedEventArgs e)
-    {
-        if (DataContext is MainWindowViewModel vm)
-            vm.ShowAbout();
-    }
+        => new AboutWindow().ShowDialog(this);
 
     private void Hide_OnClick(object? sender, RoutedEventArgs e) => Hide();
 

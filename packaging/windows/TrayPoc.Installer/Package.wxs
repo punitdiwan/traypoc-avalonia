@@ -35,7 +35,8 @@
 
     <!-- Harvest every published file into Program Files\TrayPoc -->
     <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
-      <Files Include="$(var.PublishDir)\**" Bitness="always64" />
+      <!-- Bitness comes from the package arch (InstallerPlatform=x64 in the .wixproj). -->
+      <Files Include="$(var.PublishDir)\**" />
     </ComponentGroup>
 
     <!-- Start-menu shortcut to the app -->

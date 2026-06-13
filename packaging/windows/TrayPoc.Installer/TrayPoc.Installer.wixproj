@@ -4,6 +4,10 @@
     <OutputName>TrayPoc-$(ProductVersion)-win-x64</OutputName>
     <OutputType>Package</OutputType>
 
+    <!-- Build a 64-bit MSI (passes -arch x64 to WiX). Matches the win-x64 app
+         and makes harvested components default to 64-bit (avoids ICE80). -->
+    <InstallerPlatform>x64</InstallerPlatform>
+
     <!-- Version embedded in the MSI; override with -p:ProductVersion=x.y.z -->
     <ProductVersion Condition="'$(ProductVersion)' == ''">1.0.0</ProductVersion>
 

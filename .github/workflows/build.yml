@@ -1,0 +1,126 @@
+name: Build packages
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  DOTNET_VERSION: '10.0.x'
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_NOLOGO: '1'
+
+jobs:
+  # ----------------------------------------------------------------------------
+  # Linux: self-contained publish -> AppImage (with system tray)
+  # ----------------------------------------------------------------------------
+  linux-appimage:
+    name: Linux AppImage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Derive version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=1.0.0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build AppImage
+        run: |
+          chmod +x packaging/linux/build-appimage.sh
+          ./packaging/linux/build-appimage.sh "${{ steps.ver.outputs.version }}" linux-x64
+
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TrayPoc-linux-x86_64-AppImage
+          path: dist/*.AppImage
+          if-no-files-found: error
+
+  # ----------------------------------------------------------------------------
+  # Windows: self-contained publish -> MSI via WiX v5
+  # ----------------------------------------------------------------------------
+  windows-msi:
+    name: Windows MSI
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Derive version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=1.0.0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish app (win-x64, self-contained)
+        run: >
+          dotnet publish src/TrayPoc/TrayPoc.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:Version=${{ steps.ver.outputs.version }}
+          -o publish/win-x64
+
+      - name: Build MSI (WiX v5)
+        run: >
+          dotnet build packaging/windows/TrayPoc.Installer/TrayPoc.Installer.wixproj
+          -c Release
+          -p:ProductVersion=${{ steps.ver.outputs.version }}
+          -p:PublishDir=${{ github.workspace }}\publish\win-x64\
+
+      - name: Collect MSI
+        shell: bash
+        run: |
+          mkdir -p dist
+          find packaging/windows/TrayPoc.Installer/bin -name '*.msi' -exec cp {} dist/ \;
+          ls -la dist
+
+      - name: Upload MSI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TrayPoc-win-x64-MSI
+          path: dist/*.msi
+          if-no-files-found: error
+
+  # ----------------------------------------------------------------------------
+  # On a version tag, publish both artifacts to a GitHub Release
+  # ----------------------------------------------------------------------------
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [ linux-appimage, windows-msi ]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/**/*.AppImage
+            artifacts/**/*.msi

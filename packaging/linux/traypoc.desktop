@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=TrayPoc
+GenericName=Avalonia Tray POC
+Comment=Avalonia cross-platform system-tray proof of concept
+Exec=TrayPoc
+Icon=traypoc
+Categories=Utility;
+Terminal=false
+StartupNotify=true
+StartupWMClass=TrayPoc
+Keywords=avalonia;tray;dotnet;

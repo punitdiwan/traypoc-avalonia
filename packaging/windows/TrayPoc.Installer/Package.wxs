@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <!--
+    TrayPoc MSI definition (WiX v5).
+    Preprocessor variables (supplied by the .wixproj / CI):
+      $(var.PublishDir)  - folder containing the published win-x64 app
+      $(var.IconFile)    - path to the .ico used for ARP + shortcuts
+      $(var.Version)     - product version (e.g. 1.0.0)
+  -->
+  <Package Name="TrayPoc"
+           Manufacturer="TrayPoc"
+           Version="$(var.Version)"
+           UpgradeCode="6f3d2a4e-1b7c-4f2a-9c10-2a7b5e9d4c01"
+           Scope="perMachine"
+           Compressed="yes">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Add/Remove Programs icon -->
+    <Icon Id="TrayPocIcon" SourceFile="$(var.IconFile)" />
+    <Property Id="ARPPRODUCTICON" Value="TrayPocIcon" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+
+    <!-- Install location: C:\Program Files\TrayPoc -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="TrayPoc" />
+    </StandardDirectory>
+
+    <!-- Start menu folder -->
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AppProgramMenuDir" Name="TrayPoc" />
+    </StandardDirectory>
+
+    <!-- Harvest every published file into Program Files\TrayPoc -->
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(var.PublishDir)\**" />
+    </ComponentGroup>
+
+    <!-- Start-menu shortcut to the app -->
+    <Component Id="StartMenuShortcut" Directory="AppProgramMenuDir" Guid="7a1c9b22-3e44-4d6f-8b21-9f0c4e7d5a02">
+      <Shortcut Id="TrayPocStartMenu"
+                Name="TrayPoc"
+                Description="Avalonia cross-platform tray POC"
+                Target="[INSTALLFOLDER]TrayPoc.exe"
+                WorkingDirectory="INSTALLFOLDER"
+                Icon="TrayPocIcon" />
+      <RemoveFolder Id="RemoveAppProgramMenuDir" Directory="AppProgramMenuDir" On="uninstall" />
+      <RegistryValue Root="HKCU" Key="Software\TrayPoc" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <!-- Optional: launch at Windows logon (current user). A tray app usually wants this. -->
+    <Component Id="RunAtStartup" Directory="INSTALLFOLDER" Guid="2d8e6c14-5a09-4b7e-9d33-c1b6f4e8a703">
+      <RegistryValue Root="HKCU"
+                     Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                     Name="TrayPoc"
+                     Type="string"
+                     Value="&quot;[INSTALLFOLDER]TrayPoc.exe&quot;"
+                     KeyPath="yes" />
+    </Component>
+
+    <Feature Id="Main" Title="TrayPoc" Level="1">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+
+    <!-- Run-at-startup is a separate, optional feature -->
+    <Feature Id="StartupEntry" Title="Start TrayPoc at logon" Level="1">
+      <ComponentRef Id="RunAtStartup" />
+    </Feature>
+
+  </Package>
+</Wix>

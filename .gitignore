@@ -1,0 +1,22 @@
+# .NET
+bin/
+obj/
+*.user
+
+# Build / publish output
+/publish/
+/artifacts/
+/dist/
+
+# AppImage tooling
+packaging/linux/AppDir/
+packaging/linux/*.AppImage
+packaging/linux/appimagetool*
+*.AppImage
+
+# WiX
+*.wixpdb
+*.msi
+
+# dotnet-install helper
+dotnet-install.sh

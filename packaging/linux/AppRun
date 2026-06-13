@@ -1,0 +1,12 @@
+#!/bin/sh
+# AppImage entrypoint. Resolves the AppDir and launches the bundled app.
+HERE="$(dirname "$(readlink -f "${0}")")"
+
+# Self-contained .NET keeps its native libs next to the apphost; export the
+# path anyway so any auxiliary native deps are resolvable.
+export LD_LIBRARY_PATH="${HERE}/usr/bin:${LD_LIBRARY_PATH}"
+
+# Make the GTK/X11 + StatusNotifier (tray) integration behave well.
+export DOTNET_CLI_TELEMETRY_OPTOUT=1
+
+exec "${HERE}/usr/bin/TrayPoc" "$@"

@@ -1,0 +1,46 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:TrayPoc.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="520" d:DesignHeight="360"
+        x:Class="TrayPoc.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Icon="/Assets/tray-icon.ico"
+        Width="520" Height="360"
+        WindowStartupLocation="CenterScreen"
+        Title="TrayPoc">
+
+    <Design.DataContext>
+        <vm:MainWindowViewModel/>
+    </Design.DataContext>
+
+    <Border Padding="24">
+        <StackPanel Spacing="16">
+            <TextBlock Text="{Binding Greeting}"
+                       FontSize="20" FontWeight="SemiBold"
+                       HorizontalAlignment="Center"/>
+
+            <Border Background="#11000000" CornerRadius="8" Padding="14">
+                <TextBlock Text="{Binding RuntimeInfo}"
+                           FontFamily="monospace" FontSize="13"/>
+            </Border>
+
+            <TextBlock Text="{Binding Status}"
+                       TextWrapping="Wrap"
+                       Foreground="#888"
+                       HorizontalAlignment="Center"/>
+
+            <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center">
+                <Button Content="About" Click="About_OnClick"/>
+                <Button Content="Hide to Tray" Click="Hide_OnClick"/>
+                <Button Content="Quit" Click="Quit_OnClick"/>
+            </StackPanel>
+
+            <TextBlock Text="Tip: the tray icon menu has Show / Hide / About / Quit."
+                       FontSize="11" Foreground="#999"
+                       HorizontalAlignment="Center"/>
+        </StackPanel>
+    </Border>
+
+</Window>

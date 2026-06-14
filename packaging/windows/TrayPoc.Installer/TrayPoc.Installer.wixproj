@@ -28,4 +28,16 @@
     <DefineConstants>PublishDir=$(PublishDir);IconFile=$(IconFile);Version=$(ProductVersion)</DefineConstants>
   </PropertyGroup>
 
+  <!-- WixUI_InstallDir wizard dialogs + the WixShellExec custom action used to
+       launch the app from the Finish page. -->
+  <ItemGroup>
+    <PackageReference Include="WixToolset.UI.wixext" Version="5.0.2" />
+    <PackageReference Include="WixToolset.Util.wixext" Version="5.0.2" />
+  </ItemGroup>
+
+  <!-- License text shown on the LicenseAgreementDlg. -->
+  <ItemGroup>
+    <WixVariable Include="WixUILicenseRtf" Value="$(MSBuildThisFileDirectory)License.rtf" />
+  </ItemGroup>
+
 </Project>

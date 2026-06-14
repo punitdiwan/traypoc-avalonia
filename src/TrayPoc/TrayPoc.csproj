@@ -12,7 +12,9 @@
     <Product>TrayPoc</Product>
     <Company>TrayPoc</Company>
     <Authors>TrayPoc</Authors>
-    <Version>1.0.0</Version>
+    <!-- Must stay ABOVE the last old-TrayPoc release (v1.0.1), or the self-updater
+         downgrades this Time Tracker build back to old TrayPoc on startup. -->
+    <Version>1.1.0</Version>
     <ApplicationIcon>Assets/tray-icon.ico</ApplicationIcon>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>

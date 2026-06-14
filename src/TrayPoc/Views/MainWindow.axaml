@@ -27,6 +27,8 @@
                     <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
                         <Button Content="Dashboard" Classes="tab"
                                 Command="{Binding SelectTabCommand}" CommandParameter="dashboard"/>
+                        <Button Content="Diary" Classes="tab"
+                                Command="{Binding SelectTabCommand}" CommandParameter="diary"/>
                         <Button Content="Settings" Classes="tab"
                                 Command="{Binding SelectTabCommand}" CommandParameter="settings"/>
                     </StackPanel>

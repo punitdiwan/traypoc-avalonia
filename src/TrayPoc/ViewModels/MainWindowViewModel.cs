@@ -15,6 +15,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public LoginViewModel LoginVm { get; }
     public DashboardViewModel DashboardVm { get; }
+    public WorkDiaryViewModel DiaryVm { get; }
     public SettingsViewModel SettingsVm { get; }
 
     [ObservableProperty] private bool _isAuthenticated;
@@ -33,6 +34,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _services = services;
         LoginVm = new LoginViewModel(services);
         DashboardVm = new DashboardViewModel(services);
+        DiaryVm = new WorkDiaryViewModel(services);
         SettingsVm = new SettingsViewModel(services);
 
         IsAuthenticated = services.Auth.IsAuthenticated;
@@ -68,8 +70,17 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnActiveTabChanged(string value) => UpdateCurrentPage();
 
-    private void UpdateCurrentPage() =>
-        CurrentPage = ActiveTab == "settings" ? SettingsVm : (object)DashboardVm;
+    private void UpdateCurrentPage()
+    {
+        CurrentPage = ActiveTab switch
+        {
+            "diary" => DiaryVm,
+            "settings" => SettingsVm,
+            _ => DashboardVm,
+        };
+        if (ActiveTab == "diary")
+            DiaryVm.Activate();
+    }
 
     [RelayCommand]
     private void SelectTab(string? tab) => ActiveTab = tab ?? "dashboard";

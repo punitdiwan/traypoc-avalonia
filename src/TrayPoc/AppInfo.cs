@@ -20,4 +20,7 @@ public static class AppInfo
             return v is null ? "0.0.0" : $"{v.Major}.{v.Minor}.{v.Build}";
         }
     }
+
+    /// <summary>Display label for footers, e.g. "Time Tracker v1.1.0".</summary>
+    public static string VersionLabel => $"Time Tracker v{Version}";
 }

@@ -1,13 +1,14 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TrayPoc.ViewModels"
+             xmlns:app="using:TrayPoc"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d" d:DesignWidth="560" d:DesignHeight="620"
              x:Class="TrayPoc.Views.LoginView"
              x:DataType="vm:LoginViewModel">
 
-    <Border Background="#0a0a0a" Padding="24">
+    <Panel Background="#0a0a0a">
         <StackPanel Width="300" Spacing="16"
                     HorizontalAlignment="Center" VerticalAlignment="Center">
             <StackPanel Spacing="4" HorizontalAlignment="Center">
@@ -45,6 +46,11 @@
                     Command="{Binding SignInCommand}"
                     IsEnabled="{Binding !Loading}"/>
         </StackPanel>
-    </Border>
+
+        <TextBlock Text="{x:Static app:AppInfo.VersionLabel}"
+                   Foreground="#4b5563" FontSize="11"
+                   HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                   Margin="0,0,0,12"/>
+    </Panel>
 
 </UserControl>

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
 
   <!--
     TrayPoc MSI definition (WiX v5).
@@ -18,10 +19,46 @@
     <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
-    <!-- Add/Remove Programs icon -->
+    <!-- Add/Remove Programs metadata. Repair is intentionally left enabled
+         (no ARPNOREPAIR), so ARP shows Modify / Repair / Uninstall and the
+         MSI's own maintenance wizard exposes the Repair option. -->
     <Icon Id="TrayPocIcon" SourceFile="$(var.IconFile)" />
     <Property Id="ARPPRODUCTICON" Value="TrayPocIcon" />
-    <Property Id="ARPNOREPAIR" Value="1" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/" />
+
+    <!-- Full setup wizard (Welcome -> License -> Install dir -> Progress ->
+         Finish) plus the maintenance wizard with Change / Repair / Remove. -->
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+
+    <!-- Offer to launch the tray app straight from the Finish page. -->
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch TrayPoc now" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+
+    <!-- Type-51 CA: formats [INSTALLFOLDER] into the launch target at run time.
+         A plain <Property> value would keep the literal '[INSTALLFOLDER]' text
+         (WIX1077) and the launch would fail. -->
+    <CustomAction Id="SetLaunchTarget"
+                  Property="WixShellExecTarget"
+                  Value="[INSTALLFOLDER]TrayPoc.exe" />
+    <CustomAction Id="LaunchApplication"
+                  BinaryRef="Wix4UtilCA_X64"
+                  DllEntry="WixShellExec"
+                  Impersonate="yes" />
+
+    <UI>
+      <Publish Dialog="ExitDialog"
+               Control="Finish"
+               Event="DoAction"
+               Value="SetLaunchTarget"
+               Order="1"
+               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed" />
+      <Publish Dialog="ExitDialog"
+               Control="Finish"
+               Event="DoAction"
+               Value="LaunchApplication"
+               Order="2"
+               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed" />
+    </UI>
 
     <!-- Install location: C:\Program Files\TrayPoc -->
     <StandardDirectory Id="ProgramFiles64Folder">

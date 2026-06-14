@@ -10,6 +10,17 @@
     <StackPanel Spacing="18">
         <TextBlock Text="Settings" FontSize="17" FontWeight="SemiBold" Foreground="White"/>
 
+        <!-- Server -->
+        <Border Classes="panel">
+            <StackPanel Spacing="12">
+                <TextBlock Text="Server" Classes="section"/>
+                <StackPanel Spacing="4">
+                    <TextBlock Text="API URL" Classes="label"/>
+                    <TextBox Text="{Binding ApiUrl}" Watermark="http://localhost:8080"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
         <!-- DigitalOcean Spaces -->
         <Border Classes="panel">
             <StackPanel Spacing="12">

@@ -36,4 +36,13 @@ public sealed class ConfigState
             ConfigStore.SaveConfig(_current);
         }
     }
+
+    public void SetApiUrl(string apiUrl)
+    {
+        lock (_lock)
+        {
+            _current.ApiUrl = apiUrl;
+            ConfigStore.SaveConfig(_current);
+        }
+    }
 }

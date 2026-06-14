@@ -27,6 +27,11 @@
                 <TextBox Text="{Binding Password}" PasswordChar="•"/>
             </StackPanel>
 
+            <StackPanel Spacing="4">
+                <TextBlock Text="API URL" FontSize="12" Foreground="#9ca3af"/>
+                <TextBox Text="{Binding ApiUrl}" Watermark="http://localhost:8080"/>
+            </StackPanel>
+
             <Border IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}"
                     Background="#3f1d1d" BorderBrush="#7f1d1d" BorderThickness="1"
                     CornerRadius="6" Padding="10,6">

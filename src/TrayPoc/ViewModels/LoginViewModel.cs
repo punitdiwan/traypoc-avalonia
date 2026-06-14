@@ -13,13 +13,19 @@ public partial class LoginViewModel : ViewModelBase
 
     [ObservableProperty] private string _email = "";
     [ObservableProperty] private string _password = "";
+    [ObservableProperty] private string _apiUrl = "";
     [ObservableProperty] private string? _error;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SignInCommand))]
     private bool _loading;
 
-    public LoginViewModel(AppServices services) => _services = services;
+    public LoginViewModel(AppServices services)
+    {
+        _services = services;
+        var url = services.Config.Current.ApiUrl;
+        ApiUrl = string.IsNullOrWhiteSpace(url) ? "http://localhost:8080" : url;
+    }
 
     private bool CanSignIn => !Loading;
 
@@ -30,6 +36,8 @@ public partial class LoginViewModel : ViewModelBase
         Loading = true;
         try
         {
+            // Persist the API URL first so the auth/sync clients target it.
+            _services.Config.SetApiUrl(ApiUrl.Trim());
             await _services.Auth.LoginAsync(Email.Trim(), Password);
             // AuthChanged drives the shell to swap in the main UI.
             Password = "";

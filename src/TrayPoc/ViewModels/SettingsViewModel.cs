@@ -12,6 +12,7 @@ public partial class SettingsViewModel : ViewModelBase
 {
     private readonly AppServices _services;
 
+    [ObservableProperty] private string _apiUrl = "";
     [ObservableProperty] private string _spacesBucket = "";
     [ObservableProperty] private string _spacesRegion = "";
     [ObservableProperty] private string _spacesKey = "";
@@ -39,6 +40,7 @@ public partial class SettingsViewModel : ViewModelBase
     public void Load()
     {
         var c = _services.Config.Current;
+        ApiUrl = string.IsNullOrWhiteSpace(c.ApiUrl) ? "http://localhost:8080" : c.ApiUrl;
         SpacesBucket = c.SpacesBucket;
         SpacesRegion = string.IsNullOrEmpty(c.SpacesRegion) ? "nyc3" : c.SpacesRegion;
         SpacesKey = c.SpacesKey;
@@ -66,6 +68,7 @@ public partial class SettingsViewModel : ViewModelBase
     private async Task SaveAsync()
     {
         var c = _services.Config.Current.Clone();
+        c.ApiUrl = ApiUrl.Trim();
         c.SpacesBucket = SpacesBucket.Trim();
         c.SpacesRegion = SpacesRegion.Trim();
         c.SpacesKey = SpacesKey.Trim();

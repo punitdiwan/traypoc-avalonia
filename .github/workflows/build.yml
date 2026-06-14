@@ -48,7 +48,7 @@ jobs:
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
           else
-            echo "version=1.0.0" >> "$GITHUB_OUTPUT"
+            echo "version=1.1.0" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build AppImage
@@ -94,7 +94,7 @@ jobs:
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
           else
-            echo "version=1.0.0" >> "$GITHUB_OUTPUT"
+            echo "version=1.1.0" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Publish app (win-x64, self-contained)

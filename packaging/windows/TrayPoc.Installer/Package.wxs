@@ -33,7 +33,13 @@
     <!-- Offer to launch the tray app straight from the Finish page. -->
     <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch TrayPoc now" />
     <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
-    <Property Id="WixShellExecTarget" Value="[INSTALLFOLDER]TrayPoc.exe" />
+
+    <!-- Type-51 CA: formats [INSTALLFOLDER] into the launch target at run time.
+         A plain <Property> value would keep the literal '[INSTALLFOLDER]' text
+         (WIX1077) and the launch would fail. -->
+    <CustomAction Id="SetLaunchTarget"
+                  Property="WixShellExecTarget"
+                  Value="[INSTALLFOLDER]TrayPoc.exe" />
     <CustomAction Id="LaunchApplication"
                   BinaryRef="Wix4UtilCA_X64"
                   DllEntry="WixShellExec"
@@ -43,7 +49,14 @@
       <Publish Dialog="ExitDialog"
                Control="Finish"
                Event="DoAction"
+               Value="SetLaunchTarget"
+               Order="1"
+               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed" />
+      <Publish Dialog="ExitDialog"
+               Control="Finish"
+               Event="DoAction"
                Value="LaunchApplication"
+               Order="2"
                Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed" />
     </UI>
 

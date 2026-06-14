@@ -22,6 +22,13 @@ sealed class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        // Dev smoke test for the native-heavy services (no UI / API needed).
+        if (Array.IndexOf(args, "--selftest") >= 0)
+        {
+            Environment.Exit(Services.SelfTest.Run());
+            return;
+        }
+
         // Single instance: the first process to grab the named mutex wins.
         _instanceMutex = new Mutex(initiallyOwned: true, MutexName, out bool isFirstInstance);
         if (!isFirstInstance)

@@ -2,9 +2,9 @@ using Avalonia.Controls;
 
 namespace TrayPoc.Views;
 
-public partial class MainWindow : Window
+public partial class LoginView : UserControl
 {
-    public MainWindow()
+    public LoginView()
     {
         InitializeComponent();
     }

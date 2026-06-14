@@ -1,0 +1,118 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TrayPoc.ViewModels"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="520" d:DesignHeight="700"
+             x:Class="TrayPoc.Views.DashboardView"
+             x:DataType="vm:DashboardViewModel">
+
+    <StackPanel Spacing="16">
+        <!-- Header + status -->
+        <Grid ColumnDefinitions="*,Auto">
+            <StackPanel Grid.Column="0" Spacing="2">
+                <TextBlock Text="Time Tracker" FontSize="17" FontWeight="SemiBold" Foreground="White"/>
+                <TextBlock Text="{Binding LastCaptureText}" FontSize="11" Foreground="#6b7280"
+                           IsVisible="{Binding LastCaptureText, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+            </StackPanel>
+            <Border Grid.Column="1" VerticalAlignment="Center"
+                    Background="#18181b" BorderBrush="#27272a" BorderThickness="1"
+                    CornerRadius="999" Padding="10,4">
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Ellipse Width="8" Height="8" Fill="{Binding StatusBrush}" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding StatusLabel}" FontSize="12" Foreground="#e5e7eb"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- Stat cards -->
+        <Grid ColumnDefinitions="*,*,*" ColumnSpacing="10">
+            <Border Grid.Column="0" Classes="card">
+                <StackPanel Spacing="2">
+                    <TextBlock Text="{Binding IntervalsToday}" Classes="stat"/>
+                    <TextBlock Text="Intervals Today" Classes="statLabel"/>
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="1" Classes="card">
+                <StackPanel Spacing="2">
+                    <TextBlock Text="{Binding HoursTracked}" Classes="stat"/>
+                    <TextBlock Text="Hours Tracked" Classes="statLabel"/>
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="2" Classes="card">
+                <StackPanel Spacing="2">
+                    <TextBlock Text="{Binding PendingUploads}" Classes="stat"/>
+                    <TextBlock Text="Pending Upload" Classes="statLabel"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- Recent screenshots -->
+        <StackPanel Spacing="8">
+            <TextBlock Text="Recent Screenshots" FontSize="13" Foreground="#9ca3af"/>
+
+            <TextBlock Text="No captures yet. Tracker fires every ~10 minutes."
+                       Foreground="#6b7280" FontSize="13" Margin="0,12"
+                       HorizontalAlignment="Center"
+                       IsVisible="{Binding !HasIntervals}"/>
+
+            <ItemsControl ItemsSource="{Binding Intervals}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Spacing="8"/>
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:IntervalItemViewModel">
+                        <Border Background="#111113" BorderBrush="#1f2937" BorderThickness="1"
+                                CornerRadius="8" Padding="10">
+                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                <Border Grid.Column="0" Width="96" Height="56" CornerRadius="4"
+                                        ClipToBounds="True" Background="#1f2937">
+                                    <Image Source="{Binding Thumb}" Stretch="UniformToFill"/>
+                                </Border>
+                                <StackPanel Grid.Column="1" Margin="12,0,0,0" Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding TimeText}" FontSize="13" Foreground="#e5e7eb"/>
+                                    <TextBlock Text="{Binding WindowTitle}" FontSize="11" Foreground="#6b7280"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <TextBlock Text="{Binding ActivityText}" FontSize="11" Foreground="#9ca3af"/>
+                                        <TextBlock Text="{Binding UploadText}" FontSize="11" Foreground="{Binding UploadBrush}"/>
+                                    </StackPanel>
+                                </StackPanel>
+                                <Border Grid.Column="2" VerticalAlignment="Center"
+                                        IsVisible="{Binding Unsynced}"
+                                        Background="#3f3a10" BorderBrush="#854d0e" BorderThickness="1"
+                                        CornerRadius="4" Padding="6,2">
+                                    <TextBlock Text="Unsynced" FontSize="10" Foreground="#facc15"/>
+                                </Border>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+    </StackPanel>
+
+    <UserControl.Styles>
+        <Style Selector="Border.card">
+            <Setter Property="Background" Value="#111113"/>
+            <Setter Property="BorderBrush" Value="#1f2937"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="12"/>
+        </Style>
+        <Style Selector="TextBlock.stat">
+            <Setter Property="FontSize" Value="22"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="TextBlock.statLabel">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Foreground" Value="#6b7280"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+        </Style>
+    </UserControl.Styles>
+
+</UserControl>

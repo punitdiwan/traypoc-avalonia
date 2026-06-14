@@ -4,6 +4,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
 using TrayPoc.Services;
 using TrayPoc.ViewModels;
 using TrayPoc.Views;
@@ -13,6 +14,9 @@ namespace TrayPoc;
 public partial class App : Application
 {
     private MainWindow? _mainWindow;
+    private AppServices? _services;
+    private TrayIcon? _trayIcon;
+    private DispatcherTimer? _refreshTimer;
     private bool _isExiting;
 
     public override void Initialize()
@@ -24,13 +28,20 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            // Keep the process alive when the window is closed so the app keeps
-            // running in the system tray until the user explicitly chooses Quit.
+            // Keep running in the tray after the window is closed.
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
+            _services = new AppServices();
+
+            // Push tracker tooltip updates to the tray icon.
+            var icons = TrayIcon.GetIcons(this);
+            _trayIcon = icons is { Count: > 0 } ? icons[0] : null;
+            _services.Tracker.SetTooltip = text =>
+                Dispatcher.UIThread.Post(() => { if (_trayIcon is not null) _trayIcon.ToolTipText = text; });
 
             _mainWindow = new MainWindow
             {
-                DataContext = new MainWindowViewModel(),
+                DataContext = new MainWindowViewModel(_services),
             };
 
             // Closing the window hides it to the tray instead of exiting.
@@ -45,9 +56,6 @@ public partial class App : Application
 
             desktop.MainWindow = _mainWindow;
 
-            // Check for a newer release before showing the UI. If one is found
-            // it is installed and the app relaunches; otherwise we just start
-            // normally on the current version.
             _ = RunStartupAsync();
         }
 
@@ -55,9 +63,8 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Startup gate: applies a pending update if there is one (then quits so the
-    /// relaunch helper can take over), otherwise launches the current version.
-    /// Best-effort — any failure falls through to a normal launch.
+    /// Applies a pending update if there is one (then quits so the relaunch
+    /// helper can take over), otherwise launches the current version.
     /// </summary>
     private async Task RunStartupAsync()
     {
@@ -73,12 +80,9 @@ public partial class App : Application
                 var applied = await UpdateService.DownloadAndApplyAsync(update, window.Progress);
                 if (applied)
                 {
-                    // The helper will install the update and relaunch the app
-                    // once this process exits, so quit now.
                     RequestExit();
                     return;
                 }
-
                 window.Close();
             }
         }
@@ -90,13 +94,20 @@ public partial class App : Application
         StartNormally();
     }
 
-    /// <summary>Shows the main window and begins listening for second-launch activations.</summary>
     private void StartNormally()
     {
         _mainWindow?.Show();
 
-        // A second launch signals this instance to surface the window.
         Program.StartActivationListener(ShowWindow);
+
+        // Proactively refresh the access token every 12 min (expires at 15 min).
+        _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(12) };
+        _refreshTimer.Tick += async (_, _) =>
+        {
+            if (_services?.Auth.IsAuthenticated == true)
+                await _services.Auth.RefreshAsync();
+        };
+        _refreshTimer.Start();
     }
 
     private void ShowWindow()
@@ -109,18 +120,18 @@ public partial class App : Application
         _mainWindow.Activate();
     }
 
-    // Activating the tray icon (single click on Windows) shows the window.
     private void TrayIcon_OnClicked(object? sender, EventArgs e) => ShowWindow();
 
     private void ShowWindow_OnClick(object? sender, EventArgs e) => ShowWindow();
 
-    private void HideWindow_OnClick(object? sender, EventArgs e) => _mainWindow?.Hide();
-
-    private void About_OnClick(object? sender, EventArgs e)
+    private void ToggleTracking_OnClick(object? sender, EventArgs e)
     {
-        ShowWindow();
-        if (_mainWindow is not null)
-            new Views.AboutWindow().ShowDialog(_mainWindow);
+        if (_services is null)
+            return;
+        if (_services.Tracker.Running)
+            _services.Tracker.Stop();
+        else
+            _services.Tracker.Start();
     }
 
     private void Quit_OnClick(object? sender, EventArgs e) => RequestExit();

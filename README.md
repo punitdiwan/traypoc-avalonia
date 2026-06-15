@@ -6,19 +6,29 @@ A minimal proof-of-concept desktop app built with **Avalonia UI** that runs on
 - **Linux** → an **AppImage** (single portable file) with a StatusNotifier tray icon
 - **Windows** → an **MSI installer** (built with **WiX v5**) with a notification-area tray icon
 
+This is a **pnpm monorepo** (the desktop app is the Avalonia/.NET port; the web
+dashboard and API server are shared with the rest of the Time Tracker stack):
+
 ```
-dot-net-test/
-├── src/TrayPoc/                     # Avalonia app (net10.0)
-│   ├── App.axaml(.cs)               # TrayIcon + native menu, hide-to-tray
-│   ├── Views/MainWindow.axaml(.cs)  # POC window
-│   ├── ViewModels/                  # MVVM (CommunityToolkit.Mvvm)
-│   └── Assets/                      # tray-icon.ico + PNGs (generated)
+dot-net-test/                        # (to be renamed "time-tracker")
+├── apps/
+│   ├── desktop/                     # Avalonia / .NET desktop app (net10.0) — TrayPoc.csproj
+│   │   ├── App.axaml(.cs)           # TrayIcon + native menu, hide-to-tray
+│   │   ├── Views/MainWindow.axaml(.cs)  # POC window
+│   │   ├── ViewModels/              # MVVM (CommunityToolkit.Mvvm)
+│   │   └── Assets/                  # tray-icon.ico + PNGs (generated)
+│   ├── web/                         # React + Vite dashboard (@time-tracker/web)
+│   └── api/                         # Go API server (chi, pgx, asynq)
 ├── packaging/
 │   ├── linux/                       # AppImage: build-appimage.sh, AppRun, .desktop
 │   └── windows/TrayPoc.Installer/   # WiX v5 project: Package.wxs, .wixproj
 ├── .github/workflows/build.yml      # CI: AppImage (Linux) + MSI (Windows) + Release
+├── pnpm-workspace.yaml              # apps/*
 └── TrayPoc.slnx
 ```
+
+Convenience scripts from the repo root: `pnpm web` (Vite dev server), `pnpm api`
+(Go API via `make -C apps/api run`), `pnpm desktop` (`dotnet run` the app).
 
 ## Toolchain (already installed on this machine)
 
@@ -44,7 +54,7 @@ export PATH="$HOME/.dotnet:$HOME/.dotnet/tools:$PATH"
 ## Run from source
 
 ```bash
-dotnet run --project src/TrayPoc/TrayPoc.csproj
+dotnet run --project apps/desktop/TrayPoc.csproj
 ```
 
 Close the window → the app keeps running in the tray. Tray menu: **Show / Hide /
@@ -98,7 +108,7 @@ executable + trusted so GNOME/Zorin renders it).
 > GitHub Actions `windows-msi` job — building on Linux is unsupported by WiX.
 
 ```powershell
-dotnet publish src/TrayPoc/TrayPoc.csproj -c Release -r win-x64 --self-contained true -o publish/win-x64
+dotnet publish apps/desktop/TrayPoc.csproj -c Release -r win-x64 --self-contained true -o publish/win-x64
 dotnet build packaging/windows/TrayPoc.Installer/TrayPoc.Installer.wixproj -c Release `
   -p:ProductVersion=1.0.0 -p:PublishDir="$PWD\publish\win-x64\"
 # -> packaging/windows/TrayPoc.Installer/bin/.../TrayPoc-1.0.0-win-x64.msi

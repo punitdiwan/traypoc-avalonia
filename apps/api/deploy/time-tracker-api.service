@@ -1,0 +1,17 @@
+[Unit]
+Description=Time Tracker API
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=timetracker
+WorkingDirectory=/opt/time-tracker-api
+EnvironmentFile=/opt/time-tracker-api/.env
+ExecStart=/opt/time-tracker-api/server
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

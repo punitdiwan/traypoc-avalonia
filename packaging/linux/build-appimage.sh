@@ -24,8 +24,8 @@ esac
 # Resolve repo paths relative to this script.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-PROJECT="$REPO_ROOT/src/TrayPoc/TrayPoc.csproj"
-ASSETS="$REPO_ROOT/src/TrayPoc/Assets"
+PROJECT="$REPO_ROOT/apps/desktop/TrayPoc.csproj"
+ASSETS="$REPO_ROOT/apps/desktop/Assets"
 
 BUILD_DIR="$SCRIPT_DIR/AppDir"
 PUBLISH_DIR="$REPO_ROOT/publish/$RID"

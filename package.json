@@ -1,0 +1,15 @@
+{
+  "name": "time-tracker",
+  "private": true,
+  "packageManager": "pnpm@10.33.3",
+  "engines": {
+    "node": ">=24",
+    "pnpm": ">=10"
+  },
+  "scripts": {
+    "web": "pnpm --filter @time-tracker/web dev",
+    "web:build": "pnpm --filter @time-tracker/web build",
+    "api": "make -C apps/api run",
+    "desktop": "dotnet run --project apps/desktop/TrayPoc.csproj"
+  }
+}

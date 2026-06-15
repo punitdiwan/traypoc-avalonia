@@ -1,94 +1,112 @@
 using System;
 using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Threading;
 using System.Threading.Tasks;
-using Amazon.Runtime;
-using Amazon.S3;
-using Amazon.S3.Model;
 using TrayPoc.Models;
 
 namespace TrayPoc.Services;
 
 /// <summary>
-/// Port of the Rust <c>uploader.rs</c>: uploads screenshots to DigitalOcean
-/// Spaces (S3-compatible) with a public-read ACL, deletes objects, and drains
-/// the local pending-upload queue.
+/// Uploads screenshots to DigitalOcean Spaces using short-lived presigned PUT
+/// URLs minted by the API (<c>POST /uploads/presign</c>), so the desktop never
+/// holds the Spaces credentials. Drains the local pending-upload queue.
+/// Deletion of objects is handled server-side when time logs are removed.
 /// </summary>
 public sealed class SpacesUploader
 {
+    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(120) };
+
     private readonly Database _db;
+    private readonly ApiClient _api;
+    private readonly AuthService _auth;
 
-    public SpacesUploader(Database db) => _db = db;
-
-    private static AmazonS3Client BuildClient(AppConfig config)
+    public SpacesUploader(Database db, ApiClient api, AuthService auth)
     {
-        var creds = new BasicAWSCredentials(config.SpacesKey, config.SpacesSecret);
-        var s3Config = new AmazonS3Config
-        {
-            ServiceURL = $"https://{config.SpacesRegion}.digitaloceanspaces.com",
-            ForcePathStyle = false,
-            AuthenticationRegion = config.SpacesRegion,
-        };
-        return new AmazonS3Client(creds, s3Config);
+        _db = db;
+        _api = api;
+        _auth = auth;
     }
 
-    public async Task<string> UploadFileAsync(string localPath, string spacesKey, AppConfig config)
+    /// <summary>Uploads need a valid session to mint presigned URLs.</summary>
+    public bool CanUpload => _auth.IsAuthenticated;
+
+    /// <summary>
+    /// Upload one local file to <paramref name="relKey"/> — a path under the
+    /// user's own prefix, e.g. "2026-06-15/20260615_120105.png". Returns the
+    /// public URL the object is reachable at.
+    /// </summary>
+    public async Task<string> UploadFileAsync(string localPath, string relKey, CancellationToken ct = default)
     {
-        using var client = BuildClient(config);
-        string contentType = spacesKey.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
-            ? "image/png"
-            : "image/jpeg";
-
-        await using var stream = File.OpenRead(localPath);
-        var req = new PutObjectRequest
-        {
-            BucketName = config.SpacesBucket,
-            Key = spacesKey,
-            InputStream = stream,
-            ContentType = contentType,
-            CannedACL = S3CannedACL.PublicRead,
-            DisablePayloadSigning = true,
-        };
-        await client.PutObjectAsync(req);
-
-        return $"https://{config.SpacesBucket}.{config.SpacesRegion}.digitaloceanspaces.com/{spacesKey}";
+        var slot = await PresignWithRetryAsync(relKey, ContentTypeFor(relKey), ct);
+        await PutAsync(slot, localPath, ct);
+        return slot.PublicUrl;
     }
 
-    public async Task DeleteFromSpacesAsync(string spacesUrl, AppConfig config)
+    /// <summary>Drain the pending_uploads queue. DB skips entries that failed 5+ times.</summary>
+    public async Task DrainQueueAsync(CancellationToken ct = default)
     {
-        string prefix = $"https://{config.SpacesBucket}.{config.SpacesRegion}.digitaloceanspaces.com/";
-        string key = spacesUrl.StartsWith(prefix, StringComparison.Ordinal)
-            ? spacesUrl[prefix.Length..]
-            : "";
-        if (string.IsNullOrEmpty(key))
-            throw new InvalidOperationException($"cannot derive key from URL: {spacesUrl}");
-
-        using var client = BuildClient(config);
-        await client.DeleteObjectAsync(new DeleteObjectRequest
-        {
-            BucketName = config.SpacesBucket,
-            Key = key,
-        });
-    }
-
-    /// <summary>Drain the pending_uploads queue. Skips entries that failed 5+ times.</summary>
-    public async Task DrainQueueAsync(AppConfig config)
-    {
-        if (!config.IsConfigured())
+        if (!CanUpload)
             return;
 
-        var entries = _db.GetPendingUploads();
-        foreach (var (uploadId, intervalId, localPath, spacesKey) in entries)
+        foreach (var (uploadId, intervalId, localPath, spacesKey) in _db.GetPendingUploads())
         {
             _db.MarkUploadAttempt(uploadId);
             try
             {
-                string url = await UploadFileAsync(localPath, spacesKey, config);
+                string url = await UploadFileAsync(localPath, spacesKey, ct);
                 _db.MarkUploaded(intervalId, url);
             }
             catch (Exception e)
             {
-                Console.Error.WriteLine($"upload failed (id={uploadId}): {e.Message}");
+                Log.Warn($"upload failed (id={uploadId}): {e.Message}");
             }
         }
     }
+
+    private async Task<PresignedUpload> PresignWithRetryAsync(string relKey, string contentType, CancellationToken ct)
+    {
+        var files = new[] { (relKey, contentType) };
+        try
+        {
+            return Single(await _api.PresignUploadsAsync(files, _auth.AccessToken, ct));
+        }
+        catch (ApiException ex) when (ex.StatusCode == 401)
+        {
+            // Access token expired — refresh once, then retry.
+            if (!await _auth.RefreshAsync())
+                throw;
+            return Single(await _api.PresignUploadsAsync(files, _auth.AccessToken, ct));
+        }
+    }
+
+    private static PresignedUpload Single(System.Collections.Generic.List<PresignedUpload> list)
+        => list.Count > 0 ? list[0] : throw new InvalidOperationException("presign returned no slots");
+
+    private static async Task PutAsync(PresignedUpload slot, string localPath, CancellationToken ct)
+    {
+        await using var stream = File.OpenRead(localPath);
+        using var content = new StreamContent(stream);
+        using var req = new HttpRequestMessage(HttpMethod.Put, slot.PutUrl) { Content = content };
+
+        // The presigned URL signs x-amz-acl and Content-Type, so they must be sent verbatim.
+        foreach (var (k, v) in slot.Headers)
+        {
+            if (string.Equals(k, "Content-Type", StringComparison.OrdinalIgnoreCase))
+                content.Headers.ContentType = new MediaTypeHeaderValue(v);
+            else
+                req.Headers.TryAddWithoutValidation(k, v);
+        }
+
+        using var resp = await Http.SendAsync(req, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            string text = (await resp.Content.ReadAsStringAsync(ct)).Trim();
+            throw new InvalidOperationException($"PUT {(int)resp.StatusCode}: {text}");
+        }
+    }
+
+    private static string ContentTypeFor(string key) =>
+        key.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" : "image/jpeg";
 }

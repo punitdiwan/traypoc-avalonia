@@ -18,7 +18,35 @@ public static class AppPaths
     public static string AuthFile => Path.Combine(BaseDir, "auth.json");
     public static string DbFile => Path.Combine(BaseDir, "tracker.db");
     public static string ScreenshotsDir => Path.Combine(BaseDir, "screenshots");
+    public static string LogsDir => Path.Combine(BaseDir, "logs");
 
-    /// <summary>Creates the base directory if it does not yet exist.</summary>
-    public static void EnsureBaseDir() => Directory.CreateDirectory(BaseDir);
+    /// <summary>Creates the base directory if it does not yet exist, owner-only.</summary>
+    public static void EnsureBaseDir()
+    {
+        Directory.CreateDirectory(BaseDir);
+        RestrictToOwner(BaseDir);
+    }
+
+    /// <summary>
+    /// Restrict a file or directory to its owner — 0600 for files, 0700 for
+    /// directories — so secrets (auth tokens, Spaces creds) aren't world-readable.
+    /// No-op on Windows, where the per-user %APPDATA% profile is already isolated.
+    /// Best-effort: never throws.
+    /// </summary>
+    public static void RestrictToOwner(string path)
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+        try
+        {
+            var mode = Directory.Exists(path)
+                ? UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
+                : UnixFileMode.UserRead | UnixFileMode.UserWrite;
+            File.SetUnixFileMode(path, mode);
+        }
+        catch
+        {
+            // best-effort — a stricter umask or unsupported FS shouldn't break the app
+        }
+    }
 }

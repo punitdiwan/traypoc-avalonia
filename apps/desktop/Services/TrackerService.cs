@@ -21,6 +21,7 @@ public sealed class TrackerService
     private readonly ConfigState _config;
     private readonly ActivityMonitor _activity;
     private readonly SpacesUploader _uploader;
+    private readonly AuthService _auth;
 
     private volatile bool _running;
     private CancellationTokenSource? _cts;
@@ -32,12 +33,13 @@ public sealed class TrackerService
     /// <summary>Raised (on a thread-pool thread) when running state flips.</summary>
     public event Action? RunningChanged;
 
-    public TrackerService(Database db, ConfigState config, ActivityMonitor activity, SpacesUploader uploader)
+    public TrackerService(Database db, ConfigState config, ActivityMonitor activity, SpacesUploader uploader, AuthService auth)
     {
         _db = db;
         _config = config;
         _activity = activity;
         _uploader = uploader;
+        _auth = auth;
     }
 
     public bool Running => _running;
@@ -107,10 +109,10 @@ public sealed class TrackerService
                 }
                 catch (Exception e)
                 {
-                    Console.Error.WriteLine($"capture error: {e.Message}");
+                    Log.Error($"capture: {e.Message}");
                 }
 
-                await _uploader.DrainQueueAsync(_config.Current);
+                await _uploader.DrainQueueAsync(ct);
                 UpdateTooltip(intervalSecs, isIdle: false);
 
                 if (!_running)
@@ -153,34 +155,35 @@ public sealed class TrackerService
 
         long intervalId = _db.InsertInterval(startTime, png, thumb, activityPct, windowTitle);
 
-        var cfg = _config.Current;
-        string spacesKey = $"{cfg.UserId}/{date}/{timestamp}.png";
+        // Keys are relative to the user's prefix; the API prepends the user id when
+        // it mints the presigned URL, so no Spaces credentials live on the client.
+        string spacesKey = $"{date}/{timestamp}.png";
         _db.EnqueueUpload(intervalId, png, spacesKey);
 
-        if (cfg.IsConfigured())
+        if (_auth.IsAuthenticated)
         {
             try
             {
-                string url = await _uploader.UploadFileAsync(png, spacesKey, cfg);
+                string url = await _uploader.UploadFileAsync(png, spacesKey);
                 _db.MarkUploaded(intervalId, url);
             }
             catch (Exception e)
             {
-                Console.Error.WriteLine($"immediate upload failed, queued: {e.Message}");
+                Log.Warn($"immediate upload failed, queued: {e.Message}");
             }
 
-            string thumbKey = spacesKey.Replace(".png", "_thumb.jpg");
+            string thumbKey = $"{date}/{timestamp}_thumb.jpg";
             try
             {
-                await _uploader.UploadFileAsync(thumb, thumbKey, cfg);
+                await _uploader.UploadFileAsync(thumb, thumbKey);
             }
             catch (Exception e)
             {
-                Console.Error.WriteLine($"thumbnail spaces upload failed: {e.Message}");
+                Log.Warn($"thumbnail upload failed: {e.Message}");
             }
         }
 
-        Console.WriteLine($"captured interval {intervalId} activity={activityPct:0}%");
+        Log.Info($"captured interval {intervalId} activity={activityPct:0}%");
     }
 
     private void UpdateTooltip(long intervalSecs, bool isIdle)

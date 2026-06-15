@@ -31,6 +31,7 @@ public static class ConfigStore
     {
         AppPaths.EnsureBaseDir();
         File.WriteAllText(AppPaths.ConfigFile, JsonSerializer.Serialize(config, AppJson.Options));
+        AppPaths.RestrictToOwner(AppPaths.ConfigFile);   // holds Spaces creds
     }
 
     public static AuthConfig LoadAuth()
@@ -52,6 +53,7 @@ public static class ConfigStore
     {
         AppPaths.EnsureBaseDir();
         File.WriteAllText(AppPaths.AuthFile, JsonSerializer.Serialize(auth, AppJson.Options));
+        AppPaths.RestrictToOwner(AppPaths.AuthFile);     // holds access/refresh tokens
     }
 
     public static void ClearAuth()

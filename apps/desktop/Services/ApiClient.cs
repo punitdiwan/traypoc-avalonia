@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
@@ -8,6 +11,14 @@ using System.Threading.Tasks;
 using TrayPoc.Models;
 
 namespace TrayPoc.Services;
+
+/// <summary>An API call returned a non-success HTTP status. Carries the code so
+/// callers can react (e.g. refresh + retry on 401).</summary>
+public sealed class ApiException : Exception
+{
+    public int StatusCode { get; }
+    public ApiException(int statusCode, string message) : base(message) => StatusCode = statusCode;
+}
 
 /// <summary>
 /// HTTP client for the Go API. Ports the fetch calls that lived in the React
@@ -66,6 +77,32 @@ public sealed class ApiClient
         };
         req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
         return Http.SendAsync(req, ct);
+    }
+
+    /// <summary>Request presigned PUT URLs for one or more object keys (each a path
+    /// under the caller's own user prefix, e.g. "2026-06-15/shot.png").</summary>
+    public async Task<List<PresignedUpload>> PresignUploadsAsync(
+        IReadOnlyList<(string Key, string ContentType)> files, string token, CancellationToken ct = default)
+    {
+        var body = new
+        {
+            files = files.Select(f => new { key = f.Key, content_type = f.ContentType }).ToArray(),
+        };
+        var req = new HttpRequestMessage(HttpMethod.Post, $"{ApiBase}/uploads/presign")
+        {
+            Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"),
+        };
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        using var resp = await Http.SendAsync(req, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            string text = (await resp.Content.ReadAsStringAsync(ct)).Trim();
+            throw new ApiException((int)resp.StatusCode,
+                string.IsNullOrEmpty(text) ? "presign failed" : text);
+        }
+        var parsed = await resp.Content.ReadFromJsonAsync<PresignResponse>(AppJson.Options, ct);
+        return parsed?.Uploads ?? new List<PresignedUpload>();
     }
 
     public async Task<bool> DeleteAllTimeLogsAsync(string token, CancellationToken ct = default)

@@ -46,7 +46,7 @@ public sealed class SyncService
             while (!ct.IsCancellationRequested)
             {
                 try { await RunOnceAsync(ct); }
-                catch (Exception e) { Console.Error.WriteLine($"sync error: {e.Message}"); }
+                catch (Exception e) { Log.Error($"sync: {e.Message}"); }
                 await Task.Delay(IntervalMs, ct);
             }
         }

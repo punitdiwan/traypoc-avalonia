@@ -33,7 +33,6 @@
       <IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
       <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="AWSSDK.S3" Version="4.0.24.4" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.1" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.9" />
     <!-- 3.1.x is free under the Six Labors Split License; 4.x requires a paid build key. -->

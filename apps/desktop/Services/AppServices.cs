@@ -29,8 +29,8 @@ public sealed class AppServices : IDisposable
         Api = new ApiClient(() => Config.Current);
         Auth = new AuthService(Api, Config);
         Auth.Initialize();
-        Uploader = new SpacesUploader(Db);
-        Tracker = new TrackerService(Db, Config, Activity, Uploader);
+        Uploader = new SpacesUploader(Db, Api, Auth);
+        Tracker = new TrackerService(Db, Config, Activity, Uploader, Auth);
         Sync = new SyncService(Db, Auth, Api, Config);
     }
 
@@ -42,31 +42,23 @@ public sealed class AppServices : IDisposable
     public async Task<long> ClearCapturesAsync()
     {
         var info = Db.AllScreenshotInfo();
-        var cfg = Config.Current;
 
-        // 1. Delete all time logs from the API so the web dashboard clears.
+        // 1. Delete all time logs via the API. The server also removes the
+        //    corresponding Spaces objects, so the desktop needs no bucket creds.
         if (Auth.IsAuthenticated)
         {
             try { await Api.DeleteAllTimeLogsAsync(Auth.AccessToken); }
-            catch (Exception e) { Console.Error.WriteLine($"API delete failed: {e.Message}"); }
+            catch (Exception e) { Log.Error($"API delete failed: {e.Message}"); }
         }
 
-        // 2. Delete local files and Spaces objects (PNG + thumbnail).
-        foreach (var (path, spacesUrl) in info)
+        // 2. Delete local files (PNG + thumbnail).
+        foreach (var (path, _) in info)
         {
             TryDelete(path);
             string? dir = Path.GetDirectoryName(path);
             string stem = Path.GetFileNameWithoutExtension(path);
             if (dir is not null)
                 TryDelete(Path.Combine(dir, $"{stem}_thumb.jpg"));
-
-            if (spacesUrl is not null && cfg.IsConfigured())
-            {
-                try { await Uploader.DeleteFromSpacesAsync(spacesUrl, cfg); }
-                catch (Exception e) { Console.Error.WriteLine($"spaces delete failed: {e.Message}"); }
-                try { await Uploader.DeleteFromSpacesAsync(spacesUrl.Replace(".png", "_thumb.jpg"), cfg); }
-                catch (Exception e) { Console.Error.WriteLine($"spaces thumb delete failed: {e.Message}"); }
-            }
         }
 
         // 3. Remove now-empty date directories.

@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace TrayPoc.Models;
 
 /// <summary>Response body of <c>POST /auth/login</c> and <c>/auth/refresh</c>.</summary>
@@ -31,4 +33,19 @@ public sealed class TimeLogRequest
 public sealed class TimeLogResponse
 {
     public string Id { get; set; } = "";
+}
+
+/// <summary>One presigned upload slot returned by <c>POST /uploads/presign</c>.</summary>
+public sealed class PresignedUpload
+{
+    public string Key { get; set; } = "";
+    public string PutUrl { get; set; } = "";
+    public string PublicUrl { get; set; } = "";
+    /// <summary>Headers that must be sent on the PUT (signed): x-amz-acl, Content-Type.</summary>
+    public Dictionary<string, string> Headers { get; set; } = new();
+}
+
+public sealed class PresignResponse
+{
+    public List<PresignedUpload> Uploads { get; set; } = new();
 }

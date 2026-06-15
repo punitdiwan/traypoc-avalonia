@@ -22,6 +22,8 @@ sealed class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        Services.Log.Init();
+
         // Dev smoke test for the native-heavy services (no UI / API needed).
         if (Array.IndexOf(args, "--selftest") >= 0)
         {

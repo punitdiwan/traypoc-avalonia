@@ -8,7 +8,9 @@ import (
 	"image/jpeg"
 	_ "image/png"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -84,6 +86,35 @@ func (c *Client) GenerateThumbnail(ctx context.Context, screenshotURL string) (s
 	}
 
 	return fmt.Sprintf("https://%s.%s.digitaloceanspaces.com/%s", c.bucket, c.region, thumbKey), nil
+}
+
+// PresignPut returns a short-lived presigned PUT URL for key, plus the public
+// URL the object will have once uploaded. The desktop uploads straight to the
+// PUT URL, so it never needs the Spaces credentials. "x-amz-acl: public-read"
+// is part of the signature, so uploaded objects stay publicly readable
+// (consistent with the previous direct-upload behavior).
+func (c *Client) PresignPut(ctx context.Context, key, contentType string, expiry time.Duration) (putURL, publicURL string, err error) {
+	headers := http.Header{}
+	headers.Set("x-amz-acl", "public-read")
+	if contentType != "" {
+		headers.Set("Content-Type", contentType)
+	}
+	u, err := c.mc.PresignHeader(ctx, http.MethodPut, c.bucket, key, expiry, url.Values{}, headers)
+	if err != nil {
+		return "", "", err
+	}
+	publicURL = fmt.Sprintf("https://%s.%s.digitaloceanspaces.com/%s", c.bucket, c.region, key)
+	return u.String(), publicURL, nil
+}
+
+// DeleteByURL removes the object identified by a public Spaces URL. URLs that
+// don't belong to this bucket are ignored.
+func (c *Client) DeleteByURL(ctx context.Context, fileURL string) error {
+	key := c.urlToKey(fileURL)
+	if key == "" || key == fileURL {
+		return nil
+	}
+	return c.mc.RemoveObject(ctx, c.bucket, key, minio.RemoveObjectOptions{})
 }
 
 func (c *Client) urlToKey(url string) string {

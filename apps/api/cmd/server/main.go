@@ -70,10 +70,11 @@ func main() {
 	go jobs.StartScheduler(redisAddr)
 
 	authH := handlers.NewAuthHandler(pool)
-	timeH := handlers.NewTimeLogHandler(pool, jobClient)
+	timeH := handlers.NewTimeLogHandler(pool, jobClient, spacesClient)
 	projH := handlers.NewProjectHandler(pool)
 	diaryH := handlers.NewDiaryHandler(pool)
 	userH := handlers.NewUserHandler(pool)
+	uploadH := handlers.NewUploadHandler(spacesClient)
 
 	r := chi.NewRouter()
 	r.Use(chiMiddleware.Logger)
@@ -116,6 +117,9 @@ func main() {
 			r.Get("/{id}", timeH.Get)
 			r.Delete("/{id}", timeH.Delete)
 		})
+
+		// Presigned upload URLs — desktop uploads screenshots straight to Spaces
+		r.Post("/uploads/presign", uploadH.Presign)
 
 		// Projects — anyone reads; employers create/manage
 		r.Route("/projects", func(r chi.Router) {

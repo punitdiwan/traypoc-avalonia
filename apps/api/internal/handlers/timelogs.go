@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -13,15 +14,17 @@ import (
 
 	"time-tracker/api/internal/jobs"
 	mw "time-tracker/api/internal/middleware"
+	"time-tracker/api/internal/spaces"
 )
 
 type TimeLogHandler struct {
 	db        *pgxpool.Pool
 	jobClient *asynq.Client
+	spaces    *spaces.Client
 }
 
-func NewTimeLogHandler(db *pgxpool.Pool, jobClient *asynq.Client) *TimeLogHandler {
-	return &TimeLogHandler{db: db, jobClient: jobClient}
+func NewTimeLogHandler(db *pgxpool.Pool, jobClient *asynq.Client, sp *spaces.Client) *TimeLogHandler {
+	return &TimeLogHandler{db: db, jobClient: jobClient, spaces: sp}
 }
 
 type createTimeLogRequest struct {
@@ -149,6 +152,9 @@ func (h *TimeLogHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	userID := mw.UserID(r)
 	logID := chi.URLParam(r, "id")
 
+	h.deleteSpacesObjects(r.Context(),
+		`SELECT screenshot_url, thumbnail_url FROM time_logs WHERE id=$1 AND user_id=$2`, logID, userID)
+
 	tag, err := h.db.Exec(r.Context(),
 		`DELETE FROM time_logs WHERE id=$1 AND user_id=$2`, logID, userID)
 	if err != nil || tag.RowsAffected() == 0 {
@@ -158,15 +164,48 @@ func (h *TimeLogHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// DeleteAll removes every time log belonging to the authenticated employee.
+// DeleteAll removes every time log belonging to the authenticated employee,
+// along with the screenshots/thumbnails they reference in Spaces.
 func (h *TimeLogHandler) DeleteAll(w http.ResponseWriter, r *http.Request) {
 	userID := mw.UserID(r)
+
+	h.deleteSpacesObjects(r.Context(),
+		`SELECT screenshot_url, thumbnail_url FROM time_logs WHERE user_id=$1`, userID)
+
 	_, err := h.db.Exec(r.Context(), `DELETE FROM time_logs WHERE user_id=$1`, userID)
 	if err != nil {
 		http.Error(w, "delete error", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// deleteSpacesObjects best-effort removes the screenshot/thumbnail objects for
+// the rows matched by query. Errors are logged, not fatal — the DB delete is the
+// source of truth. No-op when Spaces isn't configured.
+func (h *TimeLogHandler) deleteSpacesObjects(ctx context.Context, query string, args ...any) {
+	if h.spaces == nil {
+		return
+	}
+	rows, err := h.db.Query(ctx, query, args...)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var shot, thumb *string
+		if err := rows.Scan(&shot, &thumb); err != nil {
+			continue
+		}
+		for _, u := range []*string{shot, thumb} {
+			if u == nil || *u == "" {
+				continue
+			}
+			if err := h.spaces.DeleteByURL(ctx, *u); err != nil {
+				log.Printf("[timelogs] spaces delete %s: %v", *u, err)
+			}
+		}
+	}
 }
 
 // scanTimeLog / scanTimeLogs helpers avoid repetition.

@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Text.Json;
@@ -114,6 +115,28 @@ public sealed class SyncService
                 }
             }
             resp.Dispose();
+        }
+
+        // Reclaim disk: once an interval is uploaded AND synced, its local full-res
+        // PNG is redundant. Self-healing — also clears any backlog left by a crash
+        // or an earlier failed delete. Thumbnails are kept for the Work Diary.
+        PruneUploadedScreenshots();
+    }
+
+    private void PruneUploadedScreenshots()
+    {
+        foreach (var (id, path) in _db.ScreenshotsToPrune())
+        {
+            try
+            {
+                if (File.Exists(path))
+                    File.Delete(path);
+                _db.ClearScreenshotPath(id);
+            }
+            catch (Exception e)
+            {
+                Log.Warn($"prune screenshot {id}: {e.Message}");
+            }
         }
     }
 

@@ -177,19 +177,36 @@ public sealed class Database : IDisposable
         }
     }
 
-    /// <summary>(screenshot_path, spaces_url) for every interval with a local file.</summary>
-    public List<(string Path, string? SpacesUrl)> AllScreenshotInfo()
+    /// <summary>
+    /// (id, screenshot_path) for intervals that are fully uploaded to Spaces AND
+    /// synced to the API — their local full-res PNG is now redundant and safe to
+    /// delete. Thumbnails are kept so the Work Diary still renders offline.
+    /// </summary>
+    public List<(long Id, string Path)> ScreenshotsToPrune()
     {
         lock (_lock)
         {
             using var cmd = _conn.CreateCommand();
             cmd.CommandText =
-                "SELECT screenshot_path, spaces_url FROM time_intervals WHERE screenshot_path IS NOT NULL";
+                "SELECT id, screenshot_path FROM time_intervals " +
+                "WHERE synced = 1 AND spaces_url IS NOT NULL AND screenshot_path IS NOT NULL";
             using var r = cmd.ExecuteReader();
-            var list = new List<(string, string?)>();
+            var list = new List<(long, string)>();
             while (r.Read())
-                list.Add((r.GetString(0), r.IsDBNull(1) ? null : r.GetString(1)));
+                list.Add((r.GetInt64(0), r.GetString(1)));
             return list;
+        }
+    }
+
+    /// <summary>Clears the local full-res path once the PNG has been pruned from disk.</summary>
+    public void ClearScreenshotPath(long id)
+    {
+        lock (_lock)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "UPDATE time_intervals SET screenshot_path = NULL WHERE id = $id";
+            cmd.Parameters.AddWithValue("$id", id);
+            cmd.ExecuteNonQuery();
         }
     }
 

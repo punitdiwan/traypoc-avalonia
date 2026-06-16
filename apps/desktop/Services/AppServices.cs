@@ -41,8 +41,6 @@ public sealed class AppServices : IDisposable
     /// </summary>
     public async Task<long> ClearCapturesAsync()
     {
-        var info = Db.AllScreenshotInfo();
-
         // 1. Delete all time logs via the API. The server also removes the
         //    corresponding Spaces objects, so the desktop needs no bucket creds.
         if (Auth.IsAuthenticated)
@@ -51,32 +49,17 @@ public sealed class AppServices : IDisposable
             catch (Exception e) { Log.Error($"API delete failed: {e.Message}"); }
         }
 
-        // 2. Delete local files (PNG + thumbnail).
-        foreach (var (path, _) in info)
-        {
-            TryDelete(path);
-            string? dir = Path.GetDirectoryName(path);
-            string stem = Path.GetFileNameWithoutExtension(path);
-            if (dir is not null)
-                TryDelete(Path.Combine(dir, $"{stem}_thumb.jpg"));
-        }
-
-        // 3. Remove now-empty date directories.
+        // 2. Delete every local screenshot + thumbnail. A recursive wipe is used
+        //    rather than walking DB rows because pruned intervals no longer carry
+        //    a screenshot_path, yet their thumbnails still sit on disk.
         if (Directory.Exists(AppPaths.ScreenshotsDir))
         {
-            foreach (var d in Directory.GetDirectories(AppPaths.ScreenshotsDir))
-            {
-                try { Directory.Delete(d); } catch { /* not empty — leave it */ }
-            }
+            try { Directory.Delete(AppPaths.ScreenshotsDir, recursive: true); }
+            catch (Exception e) { Log.Error($"screenshot cleanup failed: {e.Message}"); }
         }
 
-        // 4. Wipe local SQLite records.
+        // 3. Wipe local SQLite records.
         return Db.ClearAll();
-    }
-
-    private static void TryDelete(string path)
-    {
-        try { if (File.Exists(path)) File.Delete(path); } catch { /* best-effort */ }
     }
 
     public void Dispose() => Db.Dispose();

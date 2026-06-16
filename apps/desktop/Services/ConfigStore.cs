@@ -31,7 +31,7 @@ public static class ConfigStore
     {
         AppPaths.EnsureBaseDir();
         File.WriteAllText(AppPaths.ConfigFile, JsonSerializer.Serialize(config, AppJson.Options));
-        AppPaths.RestrictToOwner(AppPaths.ConfigFile);   // holds Spaces creds
+        AppPaths.RestrictToOwner(AppPaths.ConfigFile);   // server URL + settings
     }
 
     public static AuthConfig LoadAuth()

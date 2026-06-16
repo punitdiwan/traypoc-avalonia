@@ -21,29 +21,6 @@
             </StackPanel>
         </Border>
 
-        <!-- DigitalOcean Spaces -->
-        <Border Classes="panel">
-            <StackPanel Spacing="12">
-                <TextBlock Text="DigitalOcean Spaces" Classes="section"/>
-                <StackPanel Spacing="4">
-                    <TextBlock Text="Bucket Name" Classes="label"/>
-                    <TextBox Text="{Binding SpacesBucket}" Watermark="time-tracker-screenshots"/>
-                </StackPanel>
-                <StackPanel Spacing="4">
-                    <TextBlock Text="Region" Classes="label"/>
-                    <TextBox Text="{Binding SpacesRegion}" Watermark="nyc3"/>
-                </StackPanel>
-                <StackPanel Spacing="4">
-                    <TextBlock Text="Access Key" Classes="label"/>
-                    <TextBox Text="{Binding SpacesKey}"/>
-                </StackPanel>
-                <StackPanel Spacing="4">
-                    <TextBlock Text="Secret Key" Classes="label"/>
-                    <TextBox Text="{Binding SpacesSecret}" PasswordChar="•"/>
-                </StackPanel>
-            </StackPanel>
-        </Border>
-
         <!-- Tracker -->
         <Border Classes="panel">
             <StackPanel Spacing="12">

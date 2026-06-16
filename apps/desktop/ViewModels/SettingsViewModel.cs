@@ -7,16 +7,13 @@ using TrayPoc.Services;
 
 namespace TrayPoc.ViewModels;
 
-/// <summary>Port of the React <c>Settings</c> page (Spaces creds, tracker tuning, account, danger zone).</summary>
+/// <summary>Port of the React <c>Settings</c> page (server URL, tracker tuning, account, danger zone).
+/// Spaces credentials are no longer configured here — uploads use server-minted presigned URLs.</summary>
 public partial class SettingsViewModel : ViewModelBase
 {
     private readonly AppServices _services;
 
     [ObservableProperty] private string _apiUrl = "";
-    [ObservableProperty] private string _spacesBucket = "";
-    [ObservableProperty] private string _spacesRegion = "";
-    [ObservableProperty] private string _spacesKey = "";
-    [ObservableProperty] private string _spacesSecret = "";
     [ObservableProperty] private long _captureIntervalSecs = 600;
     [ObservableProperty] private long _idleThresholdSecs = 300;
 
@@ -41,10 +38,6 @@ public partial class SettingsViewModel : ViewModelBase
     {
         var c = _services.Config.Current;
         ApiUrl = string.IsNullOrWhiteSpace(c.ApiUrl) ? "http://localhost:8080" : c.ApiUrl;
-        SpacesBucket = c.SpacesBucket;
-        SpacesRegion = string.IsNullOrEmpty(c.SpacesRegion) ? "nyc3" : c.SpacesRegion;
-        SpacesKey = c.SpacesKey;
-        SpacesSecret = c.SpacesSecret;
         CaptureIntervalSecs = c.CaptureIntervalSecs;
         IdleThresholdSecs = c.IdleThresholdSecs;
         UserEmail = _services.Auth.UserEmail;
@@ -69,10 +62,6 @@ public partial class SettingsViewModel : ViewModelBase
     {
         var c = _services.Config.Current.Clone();
         c.ApiUrl = ApiUrl.Trim();
-        c.SpacesBucket = SpacesBucket.Trim();
-        c.SpacesRegion = SpacesRegion.Trim();
-        c.SpacesKey = SpacesKey.Trim();
-        c.SpacesSecret = SpacesSecret.Trim();
         c.CaptureIntervalSecs = Math.Clamp(CaptureIntervalSecs, 10, 3600);
         c.IdleThresholdSecs = Math.Clamp(IdleThresholdSecs, 30, 1800);
         _services.Config.Update(c);

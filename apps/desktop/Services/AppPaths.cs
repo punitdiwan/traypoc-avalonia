@@ -29,7 +29,7 @@ public static class AppPaths
 
     /// <summary>
     /// Restrict a file or directory to its owner — 0600 for files, 0700 for
-    /// directories — so secrets (auth tokens, Spaces creds) aren't world-readable.
+    /// directories — so secrets (auth tokens in auth.json) aren't world-readable.
     /// No-op on Windows, where the per-user %APPDATA% profile is already isolated.
     /// Best-effort: never throws.
     /// </summary>

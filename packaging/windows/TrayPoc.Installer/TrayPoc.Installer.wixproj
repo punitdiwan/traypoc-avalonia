@@ -16,7 +16,7 @@
       CI overrides this with -p:PublishDir=...
     -->
     <PublishDir Condition="'$(PublishDir)' == ''">$(MSBuildThisFileDirectory)..\..\..\publish\win-x64\</PublishDir>
-    <IconFile Condition="'$(IconFile)' == ''">$(MSBuildThisFileDirectory)..\..\..\src\TrayPoc\Assets\tray-icon.ico</IconFile>
+    <IconFile Condition="'$(IconFile)' == ''">$(MSBuildThisFileDirectory)..\..\..\apps\desktop\Assets\tray-icon.ico</IconFile>
   </PropertyGroup>
 
   <!-- Expose the MSBuild properties to the WiX preprocessor as $(var.*) -->

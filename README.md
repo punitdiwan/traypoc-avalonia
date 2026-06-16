@@ -105,8 +105,8 @@ pnpm web:build             # tsc + vite production build
 ## Build the Linux AppImage
 
 ```bash
-./packaging/linux/build-appimage.sh 1.1.0 linux-x64
-# -> dist/TrayPoc-1.1.0-x86_64.AppImage
+./packaging/linux/build-appimage.sh 2.0.0 linux-x64
+# -> dist/TrayPoc-2.0.0-x86_64.AppImage
 ```
 
 The script publishes a self-contained build, assembles an `AppDir` (with
@@ -133,8 +133,8 @@ applications-menu entry (`install.sh` ships next to the AppImage in the release)
 ```powershell
 dotnet publish apps/desktop/TrayPoc.csproj -c Release -r win-x64 --self-contained true -o publish/win-x64
 dotnet build packaging/windows/TrayPoc.Installer/TrayPoc.Installer.wixproj -c Release `
-  -p:ProductVersion=1.1.0 -p:PublishDir="$PWD\publish\win-x64\"
-# -> packaging/windows/TrayPoc.Installer/bin/.../TrayPoc-1.1.0-win-x64.msi
+  -p:ProductVersion=2.0.0 -p:PublishDir="$PWD\publish\win-x64\"
+# -> packaging/windows/TrayPoc.Installer/bin/.../TrayPoc-2.0.0-win-x64.msi
 ```
 
 The MSI installs to `C:\Program Files\TrayPoc`, adds **Start-menu and Desktop
@@ -156,5 +156,5 @@ changed) and:
 Cut a release:
 
 ```bash
-git tag v1.1.0 && git push origin v1.1.0
+git tag v2.0.0 && git push origin v2.0.0
 ```

@@ -21,6 +21,6 @@ public static class AppInfo
         }
     }
 
-    /// <summary>Display label for footers, e.g. "Time Tracker v1.1.0".</summary>
+    /// <summary>Display label for footers, e.g. "Time Tracker v2.0.0".</summary>
     public static string VersionLabel => $"Time Tracker v{Version}";
 }

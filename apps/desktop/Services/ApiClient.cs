@@ -67,16 +67,20 @@ public sealed class ApiClient
         return (await resp.Content.ReadFromJsonAsync<LoginResult>(AppJson.Options, ct))!;
     }
 
-    /// <summary>POST one interval to /time-logs. Caller inspects the status (e.g. 401 → refresh).</summary>
+    /// <summary>POST one interval to /time-logs. Caller inspects the status (e.g. 401 → refresh).
+    /// Transient failures (network/5xx) are retried with backoff before returning.</summary>
     public Task<HttpResponseMessage> PostTimeLogAsync(TimeLogRequest body, string token, CancellationToken ct = default)
     {
-        var req = new HttpRequestMessage(HttpMethod.Post, $"{ApiBase}/time-logs")
+        string json = JsonSerializer.Serialize(body, AppJson.Options);
+        return HttpResilience.SendAsync(async c =>
         {
-            Content = new StringContent(JsonSerializer.Serialize(body, AppJson.Options),
-                Encoding.UTF8, "application/json"),
-        };
-        req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-        return Http.SendAsync(req, ct);
+            var req = new HttpRequestMessage(HttpMethod.Post, $"{ApiBase}/time-logs")
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json"),
+            };
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            return await Http.SendAsync(req, c);
+        }, ct).AsTask();
     }
 
     /// <summary>Request presigned PUT URLs for one or more object keys (each a path
@@ -88,13 +92,16 @@ public sealed class ApiClient
         {
             files = files.Select(f => new { key = f.Key, content_type = f.ContentType }).ToArray(),
         };
-        var req = new HttpRequestMessage(HttpMethod.Post, $"{ApiBase}/uploads/presign")
+        string json = JsonSerializer.Serialize(body);
+        using var resp = await HttpResilience.SendAsync(async c =>
         {
-            Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"),
-        };
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-
-        using var resp = await Http.SendAsync(req, ct);
+            var req = new HttpRequestMessage(HttpMethod.Post, $"{ApiBase}/uploads/presign")
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json"),
+            };
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            return await Http.SendAsync(req, c);
+        }, ct);
         if (!resp.IsSuccessStatusCode)
         {
             string text = (await resp.Content.ReadAsStringAsync(ct)).Trim();

@@ -35,7 +35,10 @@
     </PackageReference>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.1" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.9" />
-    <!-- 3.1.x is free under the Six Labors Split License; 4.x requires a paid build key. -->
-    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.10" />
+    <!-- Screenshot encode/resize. Version pinned to the one Avalonia.Skia already
+         pulls in transitively, so no second native SkiaSharp build is downloaded. -->
+    <PackageReference Include="SkiaSharp" Version="3.119.4" />
+    <!-- Retry/backoff for outbound HTTP (sync + presigned uploads). -->
+    <PackageReference Include="Polly" Version="8.7.0" />
   </ItemGroup>
 </Project>

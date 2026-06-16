@@ -3,9 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
+using SkiaSharp;
 
 namespace TrayPoc.Services;
 
@@ -74,8 +72,12 @@ public static class ScreenshotService
             for (int i = 3; i < buffer.Length; i += 4)
                 buffer[i] = 255;
 
-            using var image = Image.LoadPixelData<Bgra32>(buffer, w, h);
-            image.SaveAsPng(pngPath);
+            // Rows are top-down (biHeight was negative), which matches Skia's layout.
+            var info = new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Opaque);
+            using var image = SKImage.FromPixelCopy(info, buffer);
+            using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+            using var fs = File.Create(pngPath);
+            data.SaveTo(fs);
         }
         finally
         {
@@ -130,9 +132,18 @@ public static class ScreenshotService
     private static void MakeThumbnail(string pngPath, string thumbPath)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(thumbPath)!);
-        using var img = Image.Load(pngPath);
-        img.Mutate(x => x.Resize(ThumbWidth, 0)); // 0 height = preserve aspect ratio
-        img.SaveAsJpeg(thumbPath);
+        using var original = SKBitmap.Decode(pngPath)
+            ?? throw new InvalidOperationException($"Could not decode screenshot: {pngPath}");
+
+        int height = Math.Max(1, (int)Math.Round(original.Height * (ThumbWidth / (double)original.Width)));
+        var info = new SKImageInfo(ThumbWidth, height);
+        using var resized = original.Resize(info, new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear))
+            ?? throw new InvalidOperationException("Thumbnail resize failed.");
+
+        using var image = SKImage.FromBitmap(resized);
+        using var data = image.Encode(SKEncodedImageFormat.Jpeg, 80);
+        using var fs = File.Create(thumbPath);
+        data.SaveTo(fs);
     }
 
     // ─── Win32 interop ────────────────────────────────────────────────────────

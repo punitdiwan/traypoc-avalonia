@@ -86,20 +86,27 @@ public sealed class SpacesUploader
 
     private static async Task PutAsync(PresignedUpload slot, string localPath, CancellationToken ct)
     {
-        await using var stream = File.OpenRead(localPath);
-        using var content = new StreamContent(stream);
-        using var req = new HttpRequestMessage(HttpMethod.Put, slot.PutUrl) { Content = content };
-
-        // The presigned URL signs x-amz-acl and Content-Type, so they must be sent verbatim.
-        foreach (var (k, v) in slot.Headers)
+        // The file is re-opened per attempt — a consumed request/stream can't be
+        // resent — so transient PUT failures are retried with backoff.
+        using var resp = await HttpResilience.SendAsync(async c =>
         {
-            if (string.Equals(k, "Content-Type", StringComparison.OrdinalIgnoreCase))
-                content.Headers.ContentType = new MediaTypeHeaderValue(v);
-            else
-                req.Headers.TryAddWithoutValidation(k, v);
-        }
+            var stream = File.OpenRead(localPath);
+            var content = new StreamContent(stream);
+            var req = new HttpRequestMessage(HttpMethod.Put, slot.PutUrl) { Content = content };
 
-        using var resp = await Http.SendAsync(req, ct);
+            // The presigned URL signs x-amz-acl and Content-Type, so they must be sent verbatim.
+            foreach (var (k, v) in slot.Headers)
+            {
+                if (string.Equals(k, "Content-Type", StringComparison.OrdinalIgnoreCase))
+                    content.Headers.ContentType = new MediaTypeHeaderValue(v);
+                else
+                    req.Headers.TryAddWithoutValidation(k, v);
+            }
+
+            // HttpClient disposes the request content (and so the file stream) once sent.
+            return await Http.SendAsync(req, c);
+        }, ct);
+
         if (!resp.IsSuccessStatusCode)
         {
             string text = (await resp.Content.ReadAsStringAsync(ct)).Trim();

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -23,7 +24,15 @@ import (
 )
 
 func main() {
+	// Load .env from the working directory (dev: `go run` inside apps/api) and,
+	// as a fallback, from the directory holding the binary (so a standalone
+	// release binary picks up a .env sitting next to it regardless of cwd).
+	// godotenv never overrides variables already set, so precedence is:
+	// real environment > ./.env > <exe-dir>/.env.
 	_ = godotenv.Load()
+	if exe, err := os.Executable(); err == nil {
+		_ = godotenv.Load(filepath.Join(filepath.Dir(exe), ".env"))
+	}
 
 	ctx := context.Background()
 

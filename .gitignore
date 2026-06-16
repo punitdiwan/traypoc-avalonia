@@ -20,3 +20,19 @@ packaging/linux/appimagetool*
 
 # dotnet-install helper
 dotnet-install.sh
+
+# Node / web (apps/web)
+node_modules/
+.next/
+apps/web/dist/
+pnpm-debug.log*
+
+# Go (apps/api)
+apps/api/bin/
+
+# Env & local secrets
+.env
+.env.local
+*.db
+*.db-shm
+*.db-wal

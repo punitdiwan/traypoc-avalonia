@@ -1,0 +1,175 @@
+package main
+
+import (
+	"context"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"syscall"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	chiMiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
+	"github.com/joho/godotenv"
+
+	"time-tracker/api/internal/db"
+	"time-tracker/api/internal/handlers"
+	"time-tracker/api/internal/jobs"
+	mw "time-tracker/api/internal/middleware"
+	"time-tracker/api/internal/models"
+	"time-tracker/api/internal/spaces"
+)
+
+func main() {
+	// Load .env from the working directory (dev: `go run` inside apps/api) and,
+	// as a fallback, from the directory holding the binary (so a standalone
+	// release binary picks up a .env sitting next to it regardless of cwd).
+	// godotenv never overrides variables already set, so precedence is:
+	// real environment > ./.env > <exe-dir>/.env.
+	_ = godotenv.Load()
+	if exe, err := os.Executable(); err == nil {
+		_ = godotenv.Load(filepath.Join(filepath.Dir(exe), ".env"))
+	}
+
+	ctx := context.Background()
+
+	pool, err := db.Connect(ctx)
+	if err != nil {
+		log.Fatalf("db: %v", err)
+	}
+	defer pool.Close()
+
+	if err := db.Migrate(ctx, pool); err != nil {
+		log.Fatalf("migrate: %v", err)
+	}
+
+	if err := db.Seed(ctx, pool); err != nil {
+		log.Fatalf("seed: %v", err)
+	}
+
+	redisAddr := os.Getenv("REDIS_URL")
+	if redisAddr == "" {
+		redisAddr = "localhost:6379"
+	}
+
+	jobClient := jobs.NewClient(redisAddr)
+	defer jobClient.Close()
+
+	spacesConfig := spaces.Config{
+		Key:    os.Getenv("DO_SPACES_KEY"),
+		Secret: os.Getenv("DO_SPACES_SECRET"),
+		Bucket: os.Getenv("DO_SPACES_BUCKET"),
+		Region: os.Getenv("DO_SPACES_REGION"),
+	}
+	var spacesClient *spaces.Client
+	if spacesConfig.IsConfigured() {
+		var err error
+		spacesClient, err = spaces.NewClient(spacesConfig)
+		if err != nil {
+			log.Printf("spaces client init failed (thumbnails disabled): %v", err)
+		}
+	} else {
+		log.Println("DO_SPACES_* not configured — server-side thumbnails disabled")
+	}
+
+	go jobs.StartWorker(redisAddr, pool, jobClient, spacesClient)
+	go jobs.StartScheduler(redisAddr)
+
+	authH := handlers.NewAuthHandler(pool)
+	timeH := handlers.NewTimeLogHandler(pool, jobClient, spacesClient)
+	projH := handlers.NewProjectHandler(pool)
+	diaryH := handlers.NewDiaryHandler(pool)
+	userH := handlers.NewUserHandler(pool)
+	uploadH := handlers.NewUploadHandler(spacesClient)
+
+	r := chi.NewRouter()
+	r.Use(chiMiddleware.Logger)
+	r.Use(chiMiddleware.Recoverer)
+	allowedOrigins := []string{
+		"http://localhost:5173",  // web dashboard dev
+		"http://localhost:1420",  // Tauri desktop dev (Vite)
+		"tauri://localhost",      // Tauri desktop production (Windows/Linux)
+		"https://tauri.localhost", // Tauri desktop production (macOS/some Linux)
+	}
+	if origin := os.Getenv("CORS_ORIGIN"); origin != "" {
+		allowedOrigins = append(allowedOrigins, origin)
+	}
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   allowedOrigins,
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Authorization", "Content-Type"},
+		AllowCredentials: true,
+	}))
+
+	// Auth — public
+	r.Route("/auth", func(r chi.Router) {
+		r.Post("/register", authH.Register)
+		r.Post("/login", authH.Login)
+		r.Post("/refresh", authH.Refresh)
+		r.Post("/logout", authH.Logout)
+	})
+
+	// Protected routes
+	r.Group(func(r chi.Router) {
+		r.Use(mw.RequireAuth)
+
+		r.Get("/auth/me", handlers.Me(pool))
+
+		// Time logs — employee can CRUD their own
+		r.Route("/time-logs", func(r chi.Router) {
+			r.Get("/", timeH.List)
+			r.Post("/", timeH.Create)
+			r.Delete("/", timeH.DeleteAll)
+			r.Get("/{id}", timeH.Get)
+			r.Delete("/{id}", timeH.Delete)
+		})
+
+		// Presigned upload URLs — desktop uploads screenshots straight to Spaces
+		r.Post("/uploads/presign", uploadH.Presign)
+
+		// Projects — anyone reads; employers create/manage
+		r.Route("/projects", func(r chi.Router) {
+			r.Get("/", projH.List)
+			r.With(mw.RequireRole(models.RoleEmployer)).Post("/", projH.Create)
+			r.With(mw.RequireRole(models.RoleEmployer)).Post("/{id}/members", projH.AddMember)
+			r.Get("/{id}/tasks", projH.ListTasks)
+			r.With(mw.RequireRole(models.RoleEmployer)).Post("/{id}/tasks", projH.CreateTask)
+		})
+
+		// Diary — employer only
+		r.With(mw.RequireRole(models.RoleEmployer)).Get("/diary/{userId}", diaryH.Get)
+
+		// Users — employer manages employees
+		r.With(mw.RequireRole(models.RoleEmployer)).Get("/users", userH.List)
+		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/can-track", userH.SetCanTrack)
+	})
+
+	addr := os.Getenv("PORT")
+	if addr == "" {
+		addr = "8080"
+	}
+
+	srv := &http.Server{Addr: ":" + addr, Handler: r}
+
+	go func() {
+		log.Printf("listening on :%s", addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal(err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	<-quit
+
+	log.Println("shutting down...")
+	shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutCtx); err != nil {
+		log.Printf("shutdown error: %v", err)
+	}
+	log.Println("stopped")
+}

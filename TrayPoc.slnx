@@ -1,5 +1,5 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/TrayPoc/TrayPoc.csproj" />
+    <Project Path="apps/desktop/TrayPoc.csproj" />
   </Folder>
 </Solution>

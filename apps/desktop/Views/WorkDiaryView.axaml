@@ -1,0 +1,176 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TrayPoc.ViewModels"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="520" d:DesignHeight="760"
+             x:Class="TrayPoc.Views.WorkDiaryView"
+             x:DataType="vm:WorkDiaryViewModel">
+
+    <Grid>
+        <!-- Page content -->
+        <StackPanel Spacing="16">
+            <!-- Header + date nav -->
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0" Text="Work Diary" FontSize="17"
+                           FontWeight="SemiBold" Foreground="White" VerticalAlignment="Center"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                    <Button Content="←" Command="{Binding PrevDayCommand}" Classes="nav"/>
+                    <TextBlock Text="{Binding DateLabel}" Foreground="White" FontSize="13"
+                               MinWidth="100" HorizontalAlignment="Center" TextAlignment="Center"
+                               VerticalAlignment="Center"/>
+                    <Button Content="→" Command="{Binding NextDayCommand}"
+                            IsEnabled="{Binding CanGoNext}" Classes="nav"/>
+                    <Button Content="Today" Command="{Binding GoTodayCommand}"
+                            IsVisible="{Binding !IsToday}" Classes="nav" Foreground="#60a5fa"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- Day summary -->
+            <Grid ColumnDefinitions="*,*,*" ColumnSpacing="10">
+                <Border Grid.Column="0" Classes="card">
+                    <StackPanel Spacing="2">
+                        <TextBlock Text="{Binding Captures}" Classes="stat"/>
+                        <TextBlock Text="Captures" Classes="statLabel"/>
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="1" Classes="card">
+                    <StackPanel Spacing="2">
+                        <TextBlock Text="{Binding AvgActivity}" Classes="stat"/>
+                        <TextBlock Text="Avg Activity" Classes="statLabel"/>
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="2" Classes="card">
+                    <StackPanel Spacing="2">
+                        <TextBlock Text="{Binding ActiveHours}" Classes="stat"/>
+                        <TextBlock Text="Active Hours" Classes="statLabel"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- Hourly timeline -->
+            <Border Background="#111113" BorderBrush="#1f2937" BorderThickness="1"
+                    CornerRadius="10" Padding="16">
+                <StackPanel>
+                    <TextBlock Text="Loading…" Foreground="#6b7280" FontSize="13"
+                               HorizontalAlignment="Center" Margin="0,12"
+                               IsVisible="{Binding IsLoading}"/>
+                    <TextBlock Text="No captures recorded for this day." Foreground="#6b7280" FontSize="13"
+                               HorizontalAlignment="Center" Margin="0,16"
+                               IsVisible="{Binding !HasData}"/>
+
+                    <ItemsControl ItemsSource="{Binding Hours}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:HourGroupViewModel">
+                                <Grid ColumnDefinitions="76,*" Margin="0,8">
+                                    <TextBlock Grid.Column="0" Text="{Binding HourLabel}"
+                                               Foreground="#6b7280" FontSize="11"
+                                               TextAlignment="Right" Margin="0,2,12,0"/>
+                                    <StackPanel Grid.Column="1" Spacing="8">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <ProgressBar Grid.Column="0" Minimum="0" Maximum="100"
+                                                         Value="{Binding ActivityPercent}"
+                                                         Foreground="{Binding BarBrush}"
+                                                         Background="#1f2937" Height="8"
+                                                         VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding ActivityPercent, StringFormat='{}{0}%'}"
+                                                       Foreground="#9ca3af" FontSize="11"
+                                                       Width="36" TextAlignment="Right" Margin="8,0,0,0"/>
+                                        </Grid>
+                                        <ItemsControl ItemsSource="{Binding Thumbs}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapPanel Orientation="Horizontal"/>
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:DiaryThumbViewModel">
+                                                    <Button Command="{Binding SelectCommand}"
+                                                            CommandParameter="{Binding}"
+                                                            Padding="0" Margin="0,0,6,6"
+                                                            Background="#1f2937"
+                                                            ToolTip.Tip="{Binding Tooltip}"
+                                                            Classes="thumb">
+                                                        <Panel Width="80" Height="48">
+                                                            <Image Source="{Binding Thumb}" Stretch="UniformToFill"/>
+                                                            <Border VerticalAlignment="Bottom" Background="#80000000">
+                                                                <TextBlock Text="{Binding TimeText}"
+                                                                           Foreground="#e5e7eb" FontSize="9"
+                                                                           HorizontalAlignment="Center"/>
+                                                            </Border>
+                                                        </Panel>
+                                                    </Button>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+
+        <!-- Screenshot modal -->
+        <Grid IsVisible="{Binding IsModalOpen}">
+            <Border Name="Backdrop" Background="#cc000000" PointerPressed="Backdrop_PointerPressed"/>
+            <Border Name="Card" PointerPressed="Card_PointerPressed"
+                    Background="#18181b" BorderBrush="#374151" BorderThickness="1"
+                    CornerRadius="12" Margin="20" MaxWidth="520"
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
+                <StackPanel>
+                    <Grid ColumnDefinitions="*,Auto" Margin="16,12">
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="{Binding ModalTitle}" Foreground="White" FontSize="13"/>
+                            <TextBlock Text="{Binding ModalSubtitle}" Foreground="#9ca3af" FontSize="11"/>
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="✕" Command="{Binding CloseModalCommand}"
+                                Background="Transparent" Foreground="#9ca3af"/>
+                    </Grid>
+                    <Border Margin="16,0,16,12" CornerRadius="6" ClipToBounds="True">
+                        <Image Source="{Binding ModalImage}" Stretch="Uniform" MaxHeight="380"/>
+                    </Border>
+                    <TextBlock Text="{Binding ModalSpacesUrl}" Foreground="#4b5563" FontSize="10"
+                               Margin="16,0,16,12" TextTrimming="CharacterEllipsis"
+                               IsVisible="{Binding ModalSpacesUrl, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Grid>
+
+    <UserControl.Styles>
+        <Style Selector="Border.card">
+            <Setter Property="Background" Value="#111113"/>
+            <Setter Property="BorderBrush" Value="#1f2937"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="12"/>
+        </Style>
+        <Style Selector="TextBlock.stat">
+            <Setter Property="FontSize" Value="22"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="TextBlock.statLabel">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Foreground" Value="#6b7280"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Button.nav">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#9ca3af"/>
+            <Setter Property="Padding" Value="8,4"/>
+        </Style>
+        <Style Selector="Button.thumb">
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="#374151"/>
+        </Style>
+        <Style Selector="Button.thumb:pointerover">
+            <Setter Property="BorderBrush" Value="#3b82f6"/>
+        </Style>
+    </UserControl.Styles>
+
+</UserControl>

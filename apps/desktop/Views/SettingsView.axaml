@@ -1,0 +1,112 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TrayPoc.ViewModels"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="520" d:DesignHeight="800"
+             x:Class="TrayPoc.Views.SettingsView"
+             x:DataType="vm:SettingsViewModel">
+
+    <StackPanel Spacing="18">
+        <TextBlock Text="Settings" FontSize="17" FontWeight="SemiBold" Foreground="White"/>
+
+        <!-- Server -->
+        <Border Classes="panel">
+            <StackPanel Spacing="12">
+                <TextBlock Text="Server" Classes="section"/>
+                <StackPanel Spacing="4">
+                    <TextBlock Text="API URL" Classes="label"/>
+                    <TextBox Text="{Binding ApiUrl}" Watermark="http://localhost:8080"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- Tracker -->
+        <Border Classes="panel">
+            <StackPanel Spacing="12">
+                <TextBlock Text="Tracker" Classes="section"/>
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Capture Interval (seconds)" Classes="label"/>
+                    <NumericUpDown Value="{Binding CaptureIntervalSecs}" Minimum="10" Maximum="3600"
+                                   Increment="10" FormatString="0" Width="140" HorizontalAlignment="Left"/>
+                    <TextBlock Text="Min 10s. Set 30–60 for testing, 600 for production." Classes="hint"/>
+                </StackPanel>
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Idle Threshold (seconds)" Classes="label"/>
+                    <NumericUpDown Value="{Binding IdleThresholdSecs}" Minimum="30" Maximum="1800"
+                                   Increment="30" FormatString="0" Width="140" HorizontalAlignment="Left"/>
+                </StackPanel>
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Grid.Column="0" Spacing="2">
+                        <TextBlock Text="Launch at Login" Classes="label"/>
+                        <TextBlock Text="Start tracker automatically on login" Classes="hint"/>
+                    </StackPanel>
+                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding AutostartEnabled}"
+                                  VerticalAlignment="Center"/>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <!-- Account -->
+        <Border Classes="panel">
+            <StackPanel Spacing="12">
+                <TextBlock Text="Account" Classes="section"/>
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Grid.Column="0" Spacing="2">
+                        <TextBlock Text="{Binding UserEmail}" Foreground="#e5e7eb" FontSize="13"/>
+                        <TextBlock Text="{Binding UserRole}" Foreground="#6b7280" FontSize="11"/>
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="Sign out" Command="{Binding LogoutCommand}"
+                            VerticalAlignment="Center"/>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <Button Content="{Binding SaveStatus}" HorizontalAlignment="Left"
+                Background="#2563eb" Foreground="White" Padding="18,8"
+                Command="{Binding SaveCommand}"/>
+
+        <!-- Danger zone -->
+        <Border BorderBrush="#7f1d1d" BorderThickness="1" CornerRadius="10" Padding="16">
+            <StackPanel Spacing="10">
+                <TextBlock Text="Danger Zone" FontSize="13" FontWeight="SemiBold" Foreground="#f87171"/>
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Grid.Column="0" Spacing="2">
+                        <TextBlock Text="Delete all captures" Foreground="#e5e7eb" FontSize="12"/>
+                        <TextBlock Text="Removes local screenshots, Spaces uploads, and local records. Cannot be undone."
+                                   Foreground="#6b7280" FontSize="11" TextWrapping="Wrap" MaxWidth="320"/>
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="{Binding DeleteButtonText}"
+                            Command="{Binding DeleteAllCommand}" VerticalAlignment="Center"
+                            Foreground="#f87171"/>
+                </Grid>
+                <TextBlock Text="{Binding DeleteResult}" Foreground="#9ca3af" FontSize="11"
+                           IsVisible="{Binding DeleteResult, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+            </StackPanel>
+        </Border>
+    </StackPanel>
+
+    <UserControl.Styles>
+        <Style Selector="Border.panel">
+            <Setter Property="Background" Value="#111113"/>
+            <Setter Property="BorderBrush" Value="#1f2937"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding" Value="16"/>
+        </Style>
+        <Style Selector="TextBlock.section">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="#d1d5db"/>
+        </Style>
+        <Style Selector="TextBlock.label">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="#9ca3af"/>
+        </Style>
+        <Style Selector="TextBlock.hint">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Foreground" Value="#6b7280"/>
+        </Style>
+    </UserControl.Styles>
+
+</UserControl>

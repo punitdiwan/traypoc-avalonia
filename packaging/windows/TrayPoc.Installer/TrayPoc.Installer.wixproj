@@ -9,14 +9,14 @@
     <InstallerPlatform>x64</InstallerPlatform>
 
     <!-- Version embedded in the MSI; override with -p:ProductVersion=x.y.z -->
-    <ProductVersion Condition="'$(ProductVersion)' == ''">1.0.0</ProductVersion>
+    <ProductVersion Condition="'$(ProductVersion)' == ''">1.1.0</ProductVersion>
 
     <!--
       Folder holding the published win-x64 app. Defaults to <repo>/publish/win-x64.
       CI overrides this with -p:PublishDir=...
     -->
     <PublishDir Condition="'$(PublishDir)' == ''">$(MSBuildThisFileDirectory)..\..\..\publish\win-x64\</PublishDir>
-    <IconFile Condition="'$(IconFile)' == ''">$(MSBuildThisFileDirectory)..\..\..\src\TrayPoc\Assets\tray-icon.ico</IconFile>
+    <IconFile Condition="'$(IconFile)' == ''">$(MSBuildThisFileDirectory)..\..\..\apps\desktop\Assets\tray-icon.ico</IconFile>
   </PropertyGroup>
 
   <!-- Expose the MSBuild properties to the WiX preprocessor as $(var.*) -->

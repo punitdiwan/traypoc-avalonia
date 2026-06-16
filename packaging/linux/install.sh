@@ -41,8 +41,8 @@ ICON_PNG="$ICON_DIR/${ID}.png"
 TMP="$(mktemp -d)"
 if ( cd "$TMP" && "$INSTALLED" --appimage-extract "${ID}.png" >/dev/null 2>&1 ) && [ -f "$TMP/squashfs-root/${ID}.png" ]; then
   cp "$TMP/squashfs-root/${ID}.png" "$ICON_PNG"
-elif [ -f "$SCRIPT_DIR/../../src/TrayPoc/Assets/tray-icon-256.png" ]; then
-  cp "$SCRIPT_DIR/../../src/TrayPoc/Assets/tray-icon-256.png" "$ICON_PNG"
+elif [ -f "$SCRIPT_DIR/../../apps/desktop/Assets/tray-icon-256.png" ]; then
+  cp "$SCRIPT_DIR/../../apps/desktop/Assets/tray-icon-256.png" "$ICON_PNG"
 fi
 rm -rf "$TMP"
 echo ">> Installed icon  -> $ICON_PNG"

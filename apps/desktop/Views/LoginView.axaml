@@ -1,0 +1,56 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TrayPoc.ViewModels"
+             xmlns:app="using:TrayPoc"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="560" d:DesignHeight="620"
+             x:Class="TrayPoc.Views.LoginView"
+             x:DataType="vm:LoginViewModel">
+
+    <Panel Background="#0a0a0a">
+        <StackPanel Width="300" Spacing="16"
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
+            <StackPanel Spacing="4" HorizontalAlignment="Center">
+                <TextBlock Text="Time Tracker" FontSize="20" FontWeight="SemiBold"
+                           Foreground="White" HorizontalAlignment="Center"/>
+                <TextBlock Text="Sign in to your account" FontSize="13"
+                           Foreground="#6b7280" HorizontalAlignment="Center"/>
+            </StackPanel>
+
+            <StackPanel Spacing="4">
+                <TextBlock Text="Email" FontSize="12" Foreground="#9ca3af"/>
+                <TextBox Text="{Binding Email}" Watermark="you@example.com"/>
+            </StackPanel>
+
+            <StackPanel Spacing="4">
+                <TextBlock Text="Password" FontSize="12" Foreground="#9ca3af"/>
+                <TextBox Text="{Binding Password}" PasswordChar="•"/>
+            </StackPanel>
+
+            <StackPanel Spacing="4">
+                <TextBlock Text="API URL" FontSize="12" Foreground="#9ca3af"/>
+                <TextBox Text="{Binding ApiUrl}" Watermark="http://localhost:8080"/>
+            </StackPanel>
+
+            <Border IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}"
+                    Background="#3f1d1d" BorderBrush="#7f1d1d" BorderThickness="1"
+                    CornerRadius="6" Padding="10,6">
+                <TextBlock Text="{Binding Error}" Foreground="#fca5a5"
+                           FontSize="12" TextWrapping="Wrap"/>
+            </Border>
+
+            <Button Content="Sign in" HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Center"
+                    Background="#2563eb" Foreground="White"
+                    Command="{Binding SignInCommand}"
+                    IsEnabled="{Binding !Loading}"/>
+        </StackPanel>
+
+        <TextBlock Text="{x:Static app:AppInfo.VersionLabel}"
+                   Foreground="#4b5563" FontSize="11"
+                   HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                   Margin="0,0,0,12"/>
+    </Panel>
+
+</UserControl>

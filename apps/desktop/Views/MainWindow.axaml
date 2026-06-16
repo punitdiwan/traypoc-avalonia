@@ -1,0 +1,64 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:TrayPoc.ViewModels"
+        xmlns:app="using:TrayPoc"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="560" d:DesignHeight="620"
+        x:Class="TrayPoc.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Icon="/Assets/tray-icon.ico"
+        Width="560" Height="620"
+        MinWidth="460" MinHeight="480"
+        WindowStartupLocation="CenterScreen"
+        Background="#0a0a0a"
+        Title="Time Tracker">
+
+    <Grid>
+        <!-- Login (signed out) -->
+        <ContentControl Content="{Binding LoginVm}"
+                        IsVisible="{Binding !IsAuthenticated}"/>
+
+        <!-- Main shell (signed in) -->
+        <DockPanel IsVisible="{Binding IsAuthenticated}">
+            <Border DockPanel.Dock="Top" Background="#09090b"
+                    BorderBrush="#1f2937" BorderThickness="0,0,0,1"
+                    Padding="14,8">
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
+                        <Button Content="Dashboard" Classes="tab"
+                                Command="{Binding SelectTabCommand}" CommandParameter="dashboard"/>
+                        <Button Content="Diary" Classes="tab"
+                                Command="{Binding SelectTabCommand}" CommandParameter="diary"/>
+                        <Button Content="Settings" Classes="tab"
+                                Command="{Binding SelectTabCommand}" CommandParameter="settings"/>
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="{Binding TrackingButtonText}"
+                            MinWidth="70" Command="{Binding ToggleTrackingCommand}"/>
+                </Grid>
+            </Border>
+
+            <Border DockPanel.Dock="Bottom" Background="#09090b"
+                    BorderBrush="#1f2937" BorderThickness="0,1,0,0" Padding="14,4">
+                <TextBlock Text="{x:Static app:AppInfo.VersionLabel}"
+                           Foreground="#4b5563" FontSize="11" HorizontalAlignment="Right"/>
+            </Border>
+
+            <ScrollViewer>
+                <ContentControl Content="{Binding CurrentPage}" Margin="16"/>
+            </ScrollViewer>
+        </DockPanel>
+    </Grid>
+
+    <Window.Styles>
+        <Style Selector="Button.tab">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#9ca3af"/>
+            <Setter Property="Padding" Value="12,6"/>
+        </Style>
+        <Style Selector="Button.tab:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#1f2937"/>
+        </Style>
+    </Window.Styles>
+
+</Window>

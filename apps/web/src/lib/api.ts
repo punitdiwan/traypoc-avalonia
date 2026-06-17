@@ -1,4 +1,12 @@
-import type { DiaryResponse, Project, Task, TimeLog, User } from "@/types";
+import type {
+  DiaryResponse,
+  InvoiceResponse,
+  OverviewResponse,
+  Project,
+  Task,
+  TimeLog,
+  User,
+} from "@/types";
 
 const BASE = "/api";
 
@@ -70,8 +78,16 @@ export const authApi = {
 // Projects
 export const projectsApi = {
   list: () => request<Project[]>("/projects"),
-  create: (name: string) =>
-    request<{ id: string }>("/projects", { method: "POST", body: JSON.stringify({ name }) }),
+  create: (name: string, hourlyRateCents = 0) =>
+    request<{ id: string }>("/projects", {
+      method: "POST",
+      body: JSON.stringify({ name, hourly_rate_cents: hourlyRateCents }),
+    }),
+  update: (projectId: string, patch: { name?: string; hourly_rate_cents?: number }) =>
+    request<void>(`/projects/${projectId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
   listTasks: (projectId: string) => request<Task[]>(`/projects/${projectId}/tasks`),
   createTask: (projectId: string, name: string) =>
     request<{ id: string }>(`/projects/${projectId}/tasks`, {
@@ -92,6 +108,11 @@ export const usersApi = {
     request<void>(`/users/${userId}/can-track`, {
       method: "PATCH",
       body: JSON.stringify({ can_track: canTrack }),
+    }),
+  setRate: (userId: string, hourlyRateCents: number) =>
+    request<void>(`/users/${userId}/rate`, {
+      method: "PATCH",
+      body: JSON.stringify({ hourly_rate_cents: hourlyRateCents }),
     }),
   invite: async (email: string, password: string): Promise<User> => {
     // Register the employee, then immediately enable tracking so they can
@@ -118,4 +139,26 @@ export const timeLogsApi = {
 export const diaryApi = {
   get: (userId: string, date?: string) =>
     request<DiaryResponse>(`/diary/${userId}${date ? `?date=${date}` : ""}`),
+};
+
+// Team overview & billable reports (employer-only)
+export const overviewApi = {
+  get: (params: { days?: number; from?: string; to?: string } = {}) => {
+    const q = new URLSearchParams();
+    if (params.from && params.to) {
+      q.set("from", params.from);
+      q.set("to", params.to);
+    } else {
+      q.set("days", String(params.days ?? 7));
+    }
+    return request<OverviewResponse>(`/overview?${q.toString()}`);
+  },
+};
+
+// Billable invoice / timesheet for one employee (employer-only)
+export const invoiceApi = {
+  get: (userId: string, from: string, to: string) =>
+    request<InvoiceResponse>(
+      `/invoice?user_id=${userId}&from=${from}&to=${to}`
+    ),
 };

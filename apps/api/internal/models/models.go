@@ -14,19 +14,21 @@ const (
 )
 
 type User struct {
-	ID           uuid.UUID `json:"id"`
-	Email        string    `json:"email"`
-	PasswordHash string    `json:"-"`
-	Role         Role      `json:"role"`
-	CanTrack     bool      `json:"can_track"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID              uuid.UUID `json:"id"`
+	Email           string    `json:"email"`
+	PasswordHash    string    `json:"-"`
+	Role            Role      `json:"role"`
+	CanTrack        bool      `json:"can_track"`
+	HourlyRateCents int       `json:"hourly_rate_cents"`
+	CreatedAt       time.Time `json:"created_at"`
 }
 
 type Project struct {
-	ID        uuid.UUID `json:"id"`
-	Name      string    `json:"name"`
-	OwnerID   uuid.UUID `json:"owner_id"`
-	CreatedAt time.Time `json:"created_at"`
+	ID              uuid.UUID `json:"id"`
+	Name            string    `json:"name"`
+	OwnerID         uuid.UUID `json:"owner_id"`
+	HourlyRateCents int       `json:"hourly_rate_cents"`
+	CreatedAt       time.Time `json:"created_at"`
 }
 
 type Task struct {

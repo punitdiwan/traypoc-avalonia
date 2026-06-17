@@ -5,12 +5,14 @@ export interface User {
   email: string;
   role: Role;
   can_track: boolean;
+  hourly_rate_cents: number;
 }
 
 export interface Project {
   id: string;
   name: string;
   owner_id: string;
+  hourly_rate_cents: number;
   created_at: string;
 }
 
@@ -60,4 +62,68 @@ export interface DiaryResponse {
   user_id: string;
   date: string;
   hours: HourBucket[];
+}
+
+export interface DailyPoint {
+  date: string;
+  total_seconds: number;
+  avg_activity: number;
+  active_users: number;
+  billable_cents: number;
+}
+
+export interface EmployeeSummary {
+  user_id: string;
+  email: string;
+  total_seconds: number;
+  avg_activity: number;
+  can_track: boolean;
+  hourly_rate_cents: number;
+  billable_cents: number;
+  last_active: string | null;
+}
+
+export interface ProjectSummary {
+  project_id: string | null;
+  name: string;
+  total_seconds: number;
+  avg_activity: number;
+  billable_cents: number;
+}
+
+export interface OverviewResponse {
+  from: string;
+  to: string;
+  days: number;
+  currency: string;
+  daily: DailyPoint[];
+  employees: EmployeeSummary[];
+  projects: ProjectSummary[];
+  totals: {
+    total_seconds: number;
+    avg_activity: number;
+    active_today: number;
+    employee_count: number;
+    billable_cents: number;
+  };
+}
+
+export interface InvoiceLine {
+  project_id: string | null;
+  name: string;
+  seconds: number;
+  rate_cents: number;
+  amount_cents: number;
+}
+
+export interface InvoiceResponse {
+  user_id: string;
+  email: string;
+  from: string;
+  to: string;
+  currency: string;
+  line_items: InvoiceLine[];
+  total_seconds: number;
+  total_cents: number;
+  generated_at: string;
 }

@@ -22,7 +22,7 @@ func NewUserHandler(db *pgxpool.Pool) *UserHandler {
 // List returns all employees visible to an employer.
 func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.Query(r.Context(),
-		`SELECT id, email, role, can_track, created_at FROM users WHERE role='employee' ORDER BY created_at DESC`,
+		`SELECT id, email, role, can_track, hourly_rate_cents, created_at FROM users WHERE role='employee' ORDER BY created_at DESC`,
 	)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -33,7 +33,7 @@ func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 	var users []models.User
 	for rows.Next() {
 		var u models.User
-		if err := rows.Scan(&u.ID, &u.Email, &u.Role, &u.CanTrack, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.Role, &u.CanTrack, &u.HourlyRateCents, &u.CreatedAt); err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -67,6 +67,43 @@ func (h *UserHandler) SetCanTrack(w http.ResponseWriter, r *http.Request) {
 	tag, err := h.db.Exec(r.Context(),
 		`UPDATE users SET can_track=$1 WHERE id=$2 AND role='employee'`,
 		body.CanTrack, userID,
+	)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		http.Error(w, "employee not found", http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// SetRate sets an employee's default billable rate (cents/hour).
+func (h *UserHandler) SetRate(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	userID, err := uuid.Parse(idStr)
+	if err != nil {
+		http.Error(w, "invalid user id", http.StatusBadRequest)
+		return
+	}
+
+	var body struct {
+		HourlyRateCents int `json:"hourly_rate_cents"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	if body.HourlyRateCents < 0 {
+		http.Error(w, "rate must be non-negative", http.StatusBadRequest)
+		return
+	}
+
+	tag, err := h.db.Exec(r.Context(),
+		`UPDATE users SET hourly_rate_cents=$1 WHERE id=$2 AND role='employee'`,
+		body.HourlyRateCents, userID,
 	)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)

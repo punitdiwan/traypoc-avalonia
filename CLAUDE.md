@@ -101,18 +101,27 @@ Routes summary:
 - `POST /time-logs` — desktop app syncs intervals here
 - `GET /projects`, `POST /projects` (employer only)
 - `GET /diary/:userId?date=YYYY-MM-DD` — employer-only, hourly buckets with thumbnails
+- `GET /overview?days=N` (or `?from=&to=`) — employer-only team aggregate: zero-filled daily series + per-employee + per-project totals, all with `billable_cents`; powers the dashboard charts and Reports
+- `GET /invoice?user_id=&from=&to=` — employer-only billable timesheet for one employee, line items grouped by project
+- `PATCH /projects/:id` — employer-only, update project `{name?, hourly_rate_cents?}`
 - `GET /users` — employer-only, list all employees
 - `PATCH /users/:id/can-track` — employer-only, toggle `{"can_track": true/false}` per employee
+- `PATCH /users/:id/rate` — employer-only, set employee default `{"hourly_rate_cents": N}`
+
+**Billing:** rates are stored as integer cents/hour on `projects.hourly_rate_cents` and `users.hourly_rate_cents`. A time log's billable rate = the project's rate when set (> 0), else the employee's default rate; amount = `seconds × rate / 3600`. Currency is org-wide via the `CURRENCY` env (ISO 4217, default `INR`); the web app formats cents with `Intl.NumberFormat`.
 - asynq jobs: `report:weekly`, `screenshot:thumbnail`
 
 **Desktop login guard:** `POST /auth/login` returns 403 if the employee has `can_track = false`. Employers must enable tracking via the web dashboard before an employee can log in on the desktop.
 
 ### Web Dashboard (`apps/web/`) — React + Vite
 
-Employer-only SPA:
+Employer-only SPA (light/dark themed via Tailwind `class` strategy; theme persisted in `lib/theme.ts`):
 - `/login` — email/password → stores access token in localStorage, refresh in httpOnly cookie
-- `/dashboard` — list projects, create projects (employer role)
-- `/diary/:userId` — date-picker + hourly timeline with activity bars and screenshot thumbnails
+- `/dashboard` — team overview: headline stats (incl. billable) + recharts (hours/day bar, activity/day area) + per-project breakdown + per-employee table; lazy-loaded so recharts ships in its own chunk
+- `/reports` — custom date-range report with by-employee/by-project tables, CSV export, and per-employee invoice links
+- `/invoice/:userId?from=&to=` — print-friendly billable timesheet (uses `@media print` + `.no-print`; "Print / Save as PDF" calls `window.print()`)
+- `/manage` — list/create projects (with rate), invite employees, toggle tracking, edit project + employee billable rates inline
+- `/diary/:userId` — date nav (prev/next/today) + project filter + hourly timeline; thumbnails open a keyboard-navigable screenshot lightbox (`components/Lightbox.tsx`)
 - Vite dev proxy: `/api/*` → `http://localhost:8080` (strips `/api` prefix), target overridable via `VITE_API_TARGET`
 
 ### Key Data Flow
@@ -138,7 +147,8 @@ filenames from the Rust app's `*.toml`, so both can coexist):
 - `tracker.db` — local SQLite database
 
 API reads from `.env` (see `apps/api/.env.example`): `DATABASE_URL`, `REDIS_URL`,
-`JWT_SECRET`, `PORT`, `CORS_ORIGIN`, `DO_SPACES_*`, `SMTP_*`, `SEED_*`.
+`JWT_SECRET`, `PORT`, `CORS_ORIGIN`, `CURRENCY` (billing currency, default `INR`),
+`DO_SPACES_*`, `SMTP_*`, `SEED_*`.
 
 ## Cross-Platform Notes
 

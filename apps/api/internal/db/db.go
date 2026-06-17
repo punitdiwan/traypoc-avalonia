@@ -40,12 +40,20 @@ CREATE TABLE IF NOT EXISTS users (
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS can_track BOOLEAN NOT NULL DEFAULT false;
 
+-- Default billable rate for an employee's time (cents/hour); used as a fallback
+-- when a time log's project has no rate of its own.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS hourly_rate_cents INTEGER NOT NULL DEFAULT 0;
+
 CREATE TABLE IF NOT EXISTS projects (
     id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name       TEXT NOT NULL,
     owner_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Billable rate for work on this project (cents/hour); overrides the employee's
+-- default rate when set (> 0).
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS hourly_rate_cents INTEGER NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS project_members (
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

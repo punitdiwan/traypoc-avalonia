@@ -83,6 +83,8 @@ func main() {
 	projH := handlers.NewProjectHandler(pool)
 	diaryH := handlers.NewDiaryHandler(pool)
 	userH := handlers.NewUserHandler(pool)
+	overviewH := handlers.NewOverviewHandler(pool)
+	invoiceH := handlers.NewInvoiceHandler(pool)
 	uploadH := handlers.NewUploadHandler(spacesClient)
 
 	r := chi.NewRouter()
@@ -134,6 +136,7 @@ func main() {
 		r.Route("/projects", func(r chi.Router) {
 			r.Get("/", projH.List)
 			r.With(mw.RequireRole(models.RoleEmployer)).Post("/", projH.Create)
+			r.With(mw.RequireRole(models.RoleEmployer)).Patch("/{id}", projH.Update)
 			r.With(mw.RequireRole(models.RoleEmployer)).Post("/{id}/members", projH.AddMember)
 			r.Get("/{id}/tasks", projH.ListTasks)
 			r.With(mw.RequireRole(models.RoleEmployer)).Post("/{id}/tasks", projH.CreateTask)
@@ -142,9 +145,14 @@ func main() {
 		// Diary — employer only
 		r.With(mw.RequireRole(models.RoleEmployer)).Get("/diary/{userId}", diaryH.Get)
 
+		// Team overview & billable reports — employer only
+		r.With(mw.RequireRole(models.RoleEmployer)).Get("/overview", overviewH.Get)
+		r.With(mw.RequireRole(models.RoleEmployer)).Get("/invoice", invoiceH.Get)
+
 		// Users — employer manages employees
 		r.With(mw.RequireRole(models.RoleEmployer)).Get("/users", userH.List)
 		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/can-track", userH.SetCanTrack)
+		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/rate", userH.SetRate)
 	})
 
 	addr := os.Getenv("PORT")

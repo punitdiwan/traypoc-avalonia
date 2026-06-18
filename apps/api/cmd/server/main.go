@@ -50,6 +50,11 @@ func main() {
 		log.Fatalf("seed: %v", err)
 	}
 
+	// One-time fold of pre-multi-tenant data into a Default Organization.
+	if err := db.BackfillDefaultOrg(ctx, pool); err != nil {
+		log.Fatalf("backfill default org: %v", err)
+	}
+
 	redisAddr := os.Getenv("REDIS_URL")
 	if redisAddr == "" {
 		redisAddr = "localhost:6379"
@@ -86,6 +91,7 @@ func main() {
 	overviewH := handlers.NewOverviewHandler(pool)
 	invoiceH := handlers.NewInvoiceHandler(pool)
 	uploadH := handlers.NewUploadHandler(spacesClient)
+	adminH := handlers.NewAdminHandler(pool)
 
 	r := chi.NewRouter()
 	r.Use(chiMiddleware.Logger)
@@ -137,7 +143,9 @@ func main() {
 			r.Get("/", projH.List)
 			r.With(mw.RequireRole(models.RoleEmployer)).Post("/", projH.Create)
 			r.With(mw.RequireRole(models.RoleEmployer)).Patch("/{id}", projH.Update)
+			r.With(mw.RequireRole(models.RoleEmployer)).Get("/{id}/members", projH.ListMembers)
 			r.With(mw.RequireRole(models.RoleEmployer)).Post("/{id}/members", projH.AddMember)
+			r.With(mw.RequireRole(models.RoleEmployer)).Delete("/{id}/members/{userId}", projH.RemoveMember)
 			r.Get("/{id}/tasks", projH.ListTasks)
 			r.With(mw.RequireRole(models.RoleEmployer)).Post("/{id}/tasks", projH.CreateTask)
 		})
@@ -149,10 +157,16 @@ func main() {
 		r.With(mw.RequireRole(models.RoleEmployer)).Get("/overview", overviewH.Get)
 		r.With(mw.RequireRole(models.RoleEmployer)).Get("/invoice", invoiceH.Get)
 
-		// Users — employer manages employees
+		// Users — employer manages employees in their own org
 		r.With(mw.RequireRole(models.RoleEmployer)).Get("/users", userH.List)
+		r.With(mw.RequireRole(models.RoleEmployer)).Post("/users", userH.Invite)
 		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/can-track", userH.SetCanTrack)
 		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/rate", userH.SetRate)
+		r.With(mw.RequireRole(models.RoleEmployer)).Delete("/users/{id}/org", userH.Release)
+
+		// God super-admin — cross-organization administration
+		r.With(mw.RequireGod).Get("/admin/orgs", adminH.ListOrgs)
+		r.With(mw.RequireGod).Post("/admin/orgs", adminH.CreateOrg)
 	})
 
 	addr := os.Getenv("PORT")

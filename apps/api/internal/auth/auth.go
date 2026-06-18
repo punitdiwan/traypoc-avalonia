@@ -15,6 +15,7 @@ import (
 type Claims struct {
 	UserID string      `json:"sub"`
 	Role   models.Role `json:"role"`
+	OrgID  string      `json:"org,omitempty"` // empty for god / org-less users
 	jwt.RegisteredClaims
 }
 
@@ -31,10 +32,11 @@ func secret() []byte {
 	return []byte(os.Getenv("JWT_SECRET"))
 }
 
-func GenerateAccessToken(userID uuid.UUID, role models.Role) (string, error) {
+func GenerateAccessToken(userID uuid.UUID, role models.Role, orgID string) (string, error) {
 	claims := Claims{
 		UserID: userID.String(),
 		Role:   role,
+		OrgID:  orgID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

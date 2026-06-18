@@ -11,6 +11,7 @@ public sealed class TimeInterval
     public string? SpacesUrl { get; set; }
     public double ActivityPercent { get; set; }
     public string? WindowTitle { get; set; }
+    public string? ProjectId { get; set; }
     public bool Synced { get; set; }
 }
 

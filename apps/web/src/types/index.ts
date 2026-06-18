@@ -1,4 +1,4 @@
-export type Role = "employee" | "employer";
+export type Role = "employee" | "employer" | "god";
 
 export interface User {
   id: string;
@@ -6,6 +6,21 @@ export interface User {
   role: Role;
   can_track: boolean;
   hourly_rate_cents: number;
+  org_id: string | null;
+  org_name?: string;
+}
+
+export interface ProjectMember {
+  id: string;
+  email: string;
+}
+
+export interface OrgSummary {
+  id: string;
+  name: string;
+  owner_email: string;
+  employee_count: number;
+  created_at: string;
 }
 
 export interface Project {

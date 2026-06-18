@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TrayPoc.ViewModels"
+             xmlns:models="using:TrayPoc.Models"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d" d:DesignWidth="520" d:DesignHeight="700"
@@ -24,6 +25,27 @@
                 </StackPanel>
             </Border>
         </Grid>
+
+        <!-- Project selector — required before tracking can start -->
+        <Border Classes="card">
+            <StackPanel Spacing="6">
+                <TextBlock Text="Project" FontSize="11" Foreground="#9ca3af"/>
+                <ComboBox ItemsSource="{Binding Projects}"
+                          SelectedItem="{Binding SelectedProject}"
+                          HorizontalAlignment="Stretch"
+                          PlaceholderText="Select a project to track…"
+                          IsVisible="{Binding HasProjects}">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate x:DataType="models:Project">
+                            <TextBlock Text="{Binding Name}"/>
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+                <TextBlock Text="You're not assigned to any project yet. Ask your organization owner to add you to one."
+                           FontSize="12" Foreground="#facc15" TextWrapping="Wrap"
+                           IsVisible="{Binding !HasProjects}"/>
+            </StackPanel>
+        </Border>
 
         <!-- Stat cards -->
         <Grid ColumnDefinitions="*,*,*" ColumnSpacing="10">

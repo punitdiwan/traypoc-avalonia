@@ -1,8 +1,10 @@
 import type {
   DiaryResponse,
   InvoiceResponse,
+  OrgSummary,
   OverviewResponse,
   Project,
+  ProjectMember,
   Task,
   TimeLog,
   User,
@@ -67,6 +69,30 @@ export const authApi = {
     return data as { access_token: string; user: User };
   },
 
+  // Self-serve signup: creates a new organization and makes the signer its owner.
+  register: async (orgName: string, email: string, password: string) => {
+    const res = await fetch(`${BASE}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ org_name: orgName, email, password }),
+    });
+    if (!res.ok) {
+      // The API returns {"error": "..."} for the "already a member" conflict.
+      const body = await res.text();
+      let message = body;
+      try {
+        message = JSON.parse(body).error || body;
+      } catch {
+        // not JSON — use the raw body
+      }
+      throw new Error(message);
+    }
+    const data = await res.json();
+    localStorage.setItem("access_token", data.access_token);
+    return data as { access_token: string; user: User };
+  },
+
   logout: async () => {
     await fetch(`${BASE}/auth/logout`, { method: "POST", credentials: "include" });
     localStorage.removeItem("access_token");
@@ -94,10 +120,16 @@ export const projectsApi = {
       method: "POST",
       body: JSON.stringify({ name }),
     }),
+  listMembers: (projectId: string) =>
+    request<ProjectMember[]>(`/projects/${projectId}/members`),
   addMember: (projectId: string, userId: string) =>
     request<void>(`/projects/${projectId}/members`, {
       method: "POST",
       body: JSON.stringify({ user_id: userId }),
+    }),
+  removeMember: (projectId: string, userId: string) =>
+    request<void>(`/projects/${projectId}/members/${userId}`, {
+      method: "DELETE",
     }),
 };
 
@@ -114,19 +146,29 @@ export const usersApi = {
       method: "PATCH",
       body: JSON.stringify({ hourly_rate_cents: hourlyRateCents }),
     }),
-  invite: async (email: string, password: string): Promise<User> => {
-    // Register the employee, then immediately enable tracking so they can
-    // log in on the desktop without a separate employer action.
-    const data = await request<{ access_token: string; user: User }>(
-      "/auth/register",
-      { method: "POST", body: JSON.stringify({ email, password, role: "employee" }) }
-    );
-    await request<void>(`/users/${data.user.id}/can-track`, {
-      method: "PATCH",
-      body: JSON.stringify({ can_track: true }),
-    });
-    return { ...data.user, can_track: true };
-  },
+  // Invite an employee into the caller's organization (tracking enabled).
+  invite: (email: string, password: string) =>
+    request<{ id: string }>("/users", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
+  // Release an employee from the organization, freeing their email.
+  release: (userId: string) =>
+    request<void>(`/users/${userId}/org`, { method: "DELETE" }),
+};
+
+// God super-admin (cross-organization)
+export const adminApi = {
+  listOrgs: () => request<OrgSummary[]>("/admin/orgs"),
+  createOrg: (orgName: string, ownerEmail: string, ownerPassword: string) =>
+    request<{ org_id: string; owner_id: string }>("/admin/orgs", {
+      method: "POST",
+      body: JSON.stringify({
+        org_name: orgName,
+        owner_email: ownerEmail,
+        owner_password: ownerPassword,
+      }),
+    }),
 };
 
 // Time logs

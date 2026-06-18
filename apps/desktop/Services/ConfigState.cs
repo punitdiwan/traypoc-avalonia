@@ -45,4 +45,13 @@ public sealed class ConfigState
             ConfigStore.SaveConfig(_current);
         }
     }
+
+    public void SetSelectedProjectId(string projectId)
+    {
+        lock (_lock)
+        {
+            _current.SelectedProjectId = projectId;
+            ConfigStore.SaveConfig(_current);
+        }
+    }
 }

@@ -35,7 +35,7 @@ public static class SelfTest
             string dbPath = Path.Combine(tmp, "test.db");
             using var db = new Database(dbPath);
             long id = db.InsertInterval(DateTimeOffset.UtcNow.ToString(Database.TimeFormat),
-                "/tmp/a.png", "/tmp/a_thumb.jpg", 73.5, "Self Test Window");
+                "/tmp/a.png", "/tmp/a_thumb.jpg", 73.5, "Self Test Window", null);
             db.EnqueueUpload(id, "/tmp/a.png", "user/2026-06-14/x.png");
             var recent = db.RecentIntervals(10);
             long today = db.IntervalsTodayCount();

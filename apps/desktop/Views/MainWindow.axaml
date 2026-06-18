@@ -34,7 +34,8 @@
                                 Command="{Binding SelectTabCommand}" CommandParameter="settings"/>
                     </StackPanel>
                     <Button Grid.Column="1" Content="{Binding TrackingButtonText}"
-                            MinWidth="70" Command="{Binding ToggleTrackingCommand}"/>
+                            MinWidth="70" Command="{Binding ToggleTrackingCommand}"
+                            IsEnabled="{Binding CanToggleTracking}"/>
                 </Grid>
             </Border>
 

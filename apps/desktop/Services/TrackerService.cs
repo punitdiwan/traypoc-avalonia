@@ -33,6 +33,26 @@ public sealed class TrackerService
     /// <summary>Raised (on a thread-pool thread) when running state flips.</summary>
     public event Action? RunningChanged;
 
+    /// <summary>Raised when the selected project changes (drives the Start gate).</summary>
+    public event Action? SelectedProjectChanged;
+
+    private volatile string? _selectedProjectId;
+
+    /// <summary>The project new intervals are tracked against. Tracking cannot start
+    /// until this is set (the employee must pick a project first).</summary>
+    public string? SelectedProjectId
+    {
+        get => _selectedProjectId;
+        set
+        {
+            _selectedProjectId = string.IsNullOrEmpty(value) ? null : value;
+            SelectedProjectChanged?.Invoke();
+        }
+    }
+
+    /// <summary>True when a project is selected, so tracking is allowed to start.</summary>
+    public bool CanStart => !string.IsNullOrEmpty(_selectedProjectId);
+
     public TrackerService(Database db, ConfigState config, ActivityMonitor activity, SpacesUploader uploader, AuthService auth)
     {
         _db = db;
@@ -49,6 +69,9 @@ public sealed class TrackerService
         lock (_startLock)
         {
             if (_running)
+                return;
+            // A project must be selected before any time is tracked.
+            if (string.IsNullOrEmpty(_selectedProjectId))
                 return;
             _running = true;
             _cts = new CancellationTokenSource();
@@ -153,7 +176,7 @@ public sealed class TrackerService
 
         await Task.Run(() => ScreenshotService.Capture(png, thumb));
 
-        long intervalId = _db.InsertInterval(startTime, png, thumb, activityPct, windowTitle);
+        long intervalId = _db.InsertInterval(startTime, png, thumb, activityPct, windowTitle, _selectedProjectId);
 
         // Keys are relative to the user's prefix; the API prepends the user id when
         // it mints the presigned URL, so no Spaces credentials live on the client.

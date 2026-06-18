@@ -8,6 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	mw "time-tracker/api/internal/middleware"
 )
 
 type OverviewHandler struct {
@@ -101,6 +103,15 @@ func (h *OverviewHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 	fromS, toS := from.Format("2006-01-02"), to.Format("2006-01-02")
 
+	// Restrict every aggregate to the caller's organization (god sees all orgs).
+	args := []any{fromS, toS}
+	tOrg, uOrg := "", ""
+	if !mw.IsGod(r) {
+		args = append(args, mw.OrgID(r))
+		tOrg = " AND t.org_id=$3"
+		uOrg = " AND u.org_id=$3"
+	}
+
 	// Daily aggregates keyed by date string.
 	dailyMap := make(map[string]dailyPoint)
 	rows, err := h.db.Query(r.Context(),
@@ -112,9 +123,9 @@ func (h *OverviewHandler) Get(w http.ResponseWriter, r *http.Request) {
 		 FROM time_logs t
 		 JOIN users u ON u.id = t.user_id
 		 LEFT JOIN projects p ON p.id = t.project_id
-		 WHERE t.started_at::date BETWEEN $1::date AND $2::date
+		 WHERE t.started_at::date BETWEEN $1::date AND $2::date`+tOrg+`
 		 GROUP BY day`,
-		fromS, toS,
+		args...,
 	)
 	if err != nil {
 		http.Error(w, "query error", http.StatusInternalServerError)
@@ -153,10 +164,10 @@ func (h *OverviewHandler) Get(w http.ResponseWriter, r *http.Request) {
 		 LEFT JOIN time_logs t
 		        ON t.user_id = u.id AND t.started_at::date BETWEEN $1::date AND $2::date
 		 LEFT JOIN projects p ON p.id = t.project_id
-		 WHERE u.role='employee'
+		 WHERE u.role='employee'`+uOrg+`
 		 GROUP BY u.id, u.email, u.can_track, u.hourly_rate_cents
 		 ORDER BY 5 DESC, u.email ASC`,
-		fromS, toS,
+		args...,
 	)
 	if err != nil {
 		http.Error(w, "query error", http.StatusInternalServerError)
@@ -182,10 +193,10 @@ func (h *OverviewHandler) Get(w http.ResponseWriter, r *http.Request) {
 		 FROM time_logs t
 		 JOIN users u ON u.id = t.user_id
 		 LEFT JOIN projects p ON p.id = t.project_id
-		 WHERE t.started_at::date BETWEEN $1::date AND $2::date
+		 WHERE t.started_at::date BETWEEN $1::date AND $2::date`+tOrg+`
 		 GROUP BY p.id, p.name
 		 ORDER BY 3 DESC`,
-		fromS, toS,
+		args...,
 	)
 	if err != nil {
 		http.Error(w, "query error", http.StatusInternalServerError)

@@ -11,16 +11,28 @@ type Role string
 const (
 	RoleEmployee Role = "employee"
 	RoleEmployer Role = "employer"
+	// RoleGod is the unrestricted super-admin: no organization, sees and manages
+	// everything across all tenants.
+	RoleGod Role = "god"
 )
 
 type User struct {
-	ID              uuid.UUID `json:"id"`
-	Email           string    `json:"email"`
-	PasswordHash    string    `json:"-"`
-	Role            Role      `json:"role"`
-	CanTrack        bool      `json:"can_track"`
-	HourlyRateCents int       `json:"hourly_rate_cents"`
-	CreatedAt       time.Time `json:"created_at"`
+	ID              uuid.UUID  `json:"id"`
+	Email           string     `json:"email"`
+	PasswordHash    string     `json:"-"`
+	Role            Role       `json:"role"`
+	CanTrack        bool       `json:"can_track"`
+	HourlyRateCents int        `json:"hourly_rate_cents"`
+	OrgID           *uuid.UUID `json:"org_id"`
+	OrgName         string     `json:"org_name,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+}
+
+type Organization struct {
+	ID        uuid.UUID `json:"id"`
+	Name      string    `json:"name"`
+	OwnerID   uuid.UUID `json:"owner_id"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type Project struct {

@@ -21,6 +21,7 @@ public sealed class ApiUser
 /// <summary>Request body for <c>POST /time-logs</c> (one captured interval).</summary>
 public sealed class TimeLogRequest
 {
+    public string? ProjectId { get; set; }
     public string StartedAt { get; set; } = "";
     public string EndedAt { get; set; } = "";
     public long DurationSeconds { get; set; }
@@ -28,6 +29,13 @@ public sealed class TimeLogRequest
     public string? ScreenshotUrl { get; set; }
     public string? ThumbnailUrl { get; set; }
     public string? WindowTitle { get; set; }
+}
+
+/// <summary>A project the employee is assigned to (from <c>GET /projects</c>).</summary>
+public sealed class Project
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
 }
 
 public sealed class TimeLogResponse

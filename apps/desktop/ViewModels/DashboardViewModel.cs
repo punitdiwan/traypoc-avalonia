@@ -2,6 +2,7 @@ using System;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -27,9 +28,41 @@ public partial class DashboardViewModel : ViewModelBase
     [ObservableProperty] private string? _lastCaptureText;
     [ObservableProperty] private bool _hasIntervals;
 
+    // Project selection — the employee must pick a project before tracking.
+    [ObservableProperty] private bool _hasProjects;
+    [ObservableProperty] private Project? _selectedProject;
+
     public ObservableCollection<IntervalItemViewModel> Intervals { get; } = new();
+    public ObservableCollection<Project> Projects { get; } = new();
 
     public DashboardViewModel(AppServices services) => _services = services;
+
+    partial void OnSelectedProjectChanged(Project? value)
+    {
+        _services.Tracker.SelectedProjectId = value?.Id;
+        _services.Config.SetSelectedProjectId(value?.Id ?? "");
+    }
+
+    private async Task LoadProjectsAsync()
+    {
+        if (!_services.Auth.IsAuthenticated)
+            return;
+        try
+        {
+            var list = await _services.Api.GetProjectsAsync(_services.Auth.AccessToken);
+            var savedId = _services.Config.Current.SelectedProjectId;
+            Projects.Clear();
+            foreach (var p in list)
+                Projects.Add(p);
+            HasProjects = Projects.Count > 0;
+            // Restore the previously-selected project if it's still assigned.
+            SelectedProject = Projects.FirstOrDefault(p => p.Id == savedId);
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"load projects: {e.Message}");
+        }
+    }
 
     /// <summary>Begin periodic refresh (called when the main UI becomes visible).</summary>
     public void Activate()
@@ -46,6 +79,7 @@ public partial class DashboardViewModel : ViewModelBase
         _timer.Start();
         _ = RefreshStatusAsync();
         _ = RefreshIntervalsAsync();
+        _ = LoadProjectsAsync();
     }
 
     private async Task RefreshStatusAsync()

@@ -78,6 +78,7 @@ public sealed class SyncService
 
             var body = new TimeLogRequest
             {
+                ProjectId = interval.ProjectId,
                 StartedAt = Iso(started),
                 EndedAt = Iso(ended),
                 DurationSeconds = duration,

@@ -7,6 +7,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	mw "time-tracker/api/internal/middleware"
 )
 
 type InvoiceHandler struct {
@@ -46,12 +48,30 @@ func (h *InvoiceHandler) Get(w http.ResponseWriter, r *http.Request) {
 		from, to = to, from
 	}
 
+	// The employee must be in the caller's organization (god may invoice anyone).
 	var email string
-	if err := h.db.QueryRow(r.Context(),
-		`SELECT email FROM users WHERE id=$1 AND role='employee'`, userID,
-	).Scan(&email); err != nil {
+	var empErr error
+	if mw.IsGod(r) {
+		empErr = h.db.QueryRow(r.Context(),
+			`SELECT email FROM users WHERE id=$1 AND role='employee'`, userID,
+		).Scan(&email)
+	} else {
+		empErr = h.db.QueryRow(r.Context(),
+			`SELECT email FROM users WHERE id=$1 AND role='employee' AND org_id=$2`,
+			userID, mw.OrgID(r),
+		).Scan(&email)
+	}
+	if empErr != nil {
 		http.Error(w, "employee not found", http.StatusNotFound)
 		return
+	}
+
+	// Restrict line items to the caller's org as defence-in-depth.
+	args := []any{userID, from.Format("2006-01-02"), to.Format("2006-01-02")}
+	tOrg := ""
+	if !mw.IsGod(r) {
+		args = append(args, mw.OrgID(r))
+		tOrg = " AND t.org_id=$4"
 	}
 
 	// One line per project (NULL project rolls up into "Unassigned"). Rate is
@@ -63,10 +83,10 @@ func (h *InvoiceHandler) Get(w http.ResponseWriter, r *http.Request) {
 		 FROM time_logs t
 		 JOIN users u ON u.id = t.user_id
 		 LEFT JOIN projects p ON p.id = t.project_id
-		 WHERE t.user_id=$1 AND t.started_at::date BETWEEN $2::date AND $3::date
+		 WHERE t.user_id=$1 AND t.started_at::date BETWEEN $2::date AND $3::date`+tOrg+`
 		 GROUP BY p.id, p.name
 		 ORDER BY seconds DESC`,
-		userID, from.Format("2006-01-02"), to.Format("2006-01-02"),
+		args...,
 	)
 	if err != nil {
 		http.Error(w, "query error", http.StatusInternalServerError)

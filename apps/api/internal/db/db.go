@@ -84,9 +84,84 @@ CREATE TABLE IF NOT EXISTS time_logs (
 );
 
 CREATE INDEX IF NOT EXISTS time_logs_user_started ON time_logs (user_id, started_at DESC);
+
+-- Multi-tenancy: each organization has one owner (an employer); every user,
+-- project and time log belongs to at most one organization. org_id is nullable:
+-- the god super-admin and released (org-less) users have NULL.
+CREATE TABLE IF NOT EXISTS organizations (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name       TEXT NOT NULL,
+    owner_id   UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE users     ADD COLUMN IF NOT EXISTS org_id UUID REFERENCES organizations(id) ON DELETE SET NULL;
+ALTER TABLE projects  ADD COLUMN IF NOT EXISTS org_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+ALTER TABLE time_logs ADD COLUMN IF NOT EXISTS org_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+
+CREATE INDEX IF NOT EXISTS users_org     ON users (org_id);
+CREATE INDEX IF NOT EXISTS projects_org  ON projects (org_id);
+CREATE INDEX IF NOT EXISTS time_logs_org ON time_logs (org_id, started_at DESC);
 `
 
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	_, err := pool.Exec(ctx, schema)
 	return err
+}
+
+// BackfillDefaultOrg is a one-time migration of pre-multi-tenant data: if no
+// organization exists yet, it creates a single "Default Organization" owned by
+// the oldest employer and folds every org-less, non-god user/project/time-log
+// into it. This preserves the previous global-visibility behaviour on upgrade.
+//
+// It is a no-op once any organization exists, so later-released users (org_id
+// NULL by design) are never re-attached. Safe to call on every startup.
+func BackfillDefaultOrg(ctx context.Context, pool *pgxpool.Pool) error {
+	var orgCount int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM organizations`).Scan(&orgCount); err != nil {
+		return fmt.Errorf("count orgs: %w", err)
+	}
+	if orgCount > 0 {
+		return nil // already migrated (or orgs created via signup) — leave as-is
+	}
+
+	var ownerID string
+	err := pool.QueryRow(ctx,
+		`SELECT id FROM users WHERE role='employer' ORDER BY created_at ASC LIMIT 1`,
+	).Scan(&ownerID)
+	if err != nil {
+		// No employer to own a default org yet (e.g. only god/employees exist).
+		// Nothing to backfill; a fresh org will be created on first signup.
+		return nil
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin backfill: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var orgID string
+	if err := tx.QueryRow(ctx,
+		`INSERT INTO organizations (name, owner_id) VALUES ('Default Organization', $1) RETURNING id`,
+		ownerID,
+	).Scan(&orgID); err != nil {
+		return fmt.Errorf("create default org: %w", err)
+	}
+
+	// Everyone except god, and every existing project/time log, joins the default org.
+	for _, q := range []string{
+		`UPDATE users     SET org_id=$1 WHERE org_id IS NULL AND role <> 'god'`,
+		`UPDATE projects  SET org_id=$1 WHERE org_id IS NULL`,
+		`UPDATE time_logs SET org_id=$1 WHERE org_id IS NULL`,
+	} {
+		if _, err := tx.Exec(ctx, q, orgID); err != nil {
+			return fmt.Errorf("backfill org_id: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit backfill: %w", err)
+	}
+	return nil
 }

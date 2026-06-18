@@ -10,6 +10,10 @@ public sealed class AppConfig
     public string ApiUrl { get; set; } = "";
     public string UserId { get; set; } = "";
 
+    /// <summary>The project the employee selected to track against. Persisted so the
+    /// picker restores the last choice across restarts.</summary>
+    public string SelectedProjectId { get; set; } = "";
+
     /// <summary>Seconds between captures. Default 600 (10 min). Minimum 10.</summary>
     public long CaptureIntervalSecs { get; set; } = 600;
 

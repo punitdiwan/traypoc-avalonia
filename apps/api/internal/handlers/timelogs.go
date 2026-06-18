@@ -90,6 +90,7 @@ func (h *TimeLogHandler) List(w http.ResponseWriter, r *http.Request) {
 
 func (h *TimeLogHandler) Create(w http.ResponseWriter, r *http.Request) {
 	userID := mw.UserID(r)
+	orgID := mw.OrgID(r)
 
 	var req createTimeLogRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -97,14 +98,38 @@ func (h *TimeLogHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if orgID == "" {
+		http.Error(w, "your account is not part of an organization", http.StatusForbidden)
+		return
+	}
+	// A project must be selected, and the caller must be a member (or owner) of a
+	// project that lives in their own organization.
+	if req.ProjectID == nil {
+		http.Error(w, "project_id is required", http.StatusBadRequest)
+		return
+	}
+	var allowed bool
+	h.db.QueryRow(r.Context(),
+		`SELECT EXISTS(
+			SELECT 1 FROM projects p
+			LEFT JOIN project_members pm ON pm.project_id = p.id
+			WHERE p.id=$1 AND p.org_id=$2 AND (p.owner_id=$3 OR pm.user_id=$3)
+		)`,
+		req.ProjectID, orgID, userID,
+	).Scan(&allowed)
+	if !allowed {
+		http.Error(w, "project not found or not assigned to you", http.StatusForbidden)
+		return
+	}
+
 	var id uuid.UUID
 	err := h.db.QueryRow(r.Context(),
 		`INSERT INTO time_logs
-		 (user_id, project_id, task_id, started_at, ended_at, duration_seconds,
+		 (user_id, org_id, project_id, task_id, started_at, ended_at, duration_seconds,
 		  activity_percent, screenshot_url, thumbnail_url, window_title)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 		 RETURNING id`,
-		userID, req.ProjectID, req.TaskID, req.StartedAt, req.EndedAt,
+		userID, orgID, req.ProjectID, req.TaskID, req.StartedAt, req.EndedAt,
 		req.DurationSeconds, req.ActivityPercent, req.ScreenshotURL,
 		req.ThumbnailURL, req.WindowTitle,
 	).Scan(&id)

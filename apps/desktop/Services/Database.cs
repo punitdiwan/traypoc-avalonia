@@ -49,6 +49,27 @@ public sealed class Database : IDisposable
             CREATE INDEX IF NOT EXISTS idx_intervals_start ON time_intervals(start_time);
             CREATE INDEX IF NOT EXISTS idx_intervals_synced ON time_intervals(synced);
             """);
+
+        // The project the interval was tracked against; added after the initial
+        // release, so apply it idempotently for existing databases.
+        EnsureColumn("time_intervals", "project_id", "TEXT");
+    }
+
+    /// <summary>Adds a column if it isn't already present (SQLite has no
+    /// ADD COLUMN IF NOT EXISTS).</summary>
+    private void EnsureColumn(string table, string column, string type)
+    {
+        lock (_lock)
+        {
+            using (var check = _conn.CreateCommand())
+            {
+                check.CommandText = $"SELECT 1 FROM pragma_table_info('{table}') WHERE name = $col";
+                check.Parameters.AddWithValue("$col", column);
+                if (check.ExecuteScalar() is not null)
+                    return;
+            }
+            Exec($"ALTER TABLE {table} ADD COLUMN {column} {type};");
+        }
     }
 
     private void Exec(string sql)
@@ -59,15 +80,15 @@ public sealed class Database : IDisposable
     }
 
     public long InsertInterval(string startTime, string? screenshotPath, string? thumbPath,
-        double activityPercent, string? windowTitle)
+        double activityPercent, string? windowTitle, string? projectId)
     {
         lock (_lock)
         {
             using var cmd = _conn.CreateCommand();
             cmd.CommandText = """
                 INSERT INTO time_intervals
-                 (start_time, end_time, screenshot_path, thumb_path, activity_percent, window_title)
-                 VALUES ($start, $start, $shot, $thumb, $act, $title);
+                 (start_time, end_time, screenshot_path, thumb_path, activity_percent, window_title, project_id)
+                 VALUES ($start, $start, $shot, $thumb, $act, $title, $project);
                 SELECT last_insert_rowid();
                 """;
             cmd.Parameters.AddWithValue("$start", startTime);
@@ -75,6 +96,7 @@ public sealed class Database : IDisposable
             cmd.Parameters.AddWithValue("$thumb", (object?)thumbPath ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$act", activityPercent);
             cmd.Parameters.AddWithValue("$title", (object?)windowTitle ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$project", (object?)projectId ?? DBNull.Value);
             return (long)(cmd.ExecuteScalar() ?? 0L);
         }
     }
@@ -252,7 +274,7 @@ public sealed class Database : IDisposable
 
     private const string SelectCols =
         "SELECT id, start_time, end_time, screenshot_path, thumb_path, spaces_url, " +
-        "activity_percent, window_title, synced FROM time_intervals";
+        "activity_percent, window_title, synced, project_id FROM time_intervals";
 
     private static List<TimeInterval> ReadIntervals(SqliteCommand cmd)
     {
@@ -271,6 +293,7 @@ public sealed class Database : IDisposable
                 ActivityPercent = r.IsDBNull(6) ? 0 : r.GetDouble(6),
                 WindowTitle = r.IsDBNull(7) ? null : r.GetString(7),
                 Synced = !r.IsDBNull(8) && r.GetInt32(8) != 0,
+                ProjectId = r.IsDBNull(9) ? null : r.GetString(9),
             });
         }
         return list;

@@ -26,7 +26,7 @@ export default function NavBar() {
       <div className="flex items-center gap-6">
         <Link to="/dashboard" className="flex items-center gap-2 font-semibold text-brand-600 dark:text-brand-400 text-lg">
           <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-brand-600 text-white text-sm">⏱</span>
-          TimeTracker
+          {user?.org_name || "TimeTracker"}
         </Link>
         <div className="hidden sm:flex items-center gap-4">
           <NavLink to="/dashboard" className={linkClass} end>

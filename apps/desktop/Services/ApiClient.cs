@@ -112,6 +112,22 @@ public sealed class ApiClient
         return parsed?.Uploads ?? new List<PresignedUpload>();
     }
 
+    /// <summary>Fetch the projects the authenticated employee is assigned to.</summary>
+    public async Task<List<Project>> GetProjectsAsync(string token, CancellationToken ct = default)
+    {
+        var req = new HttpRequestMessage(HttpMethod.Get, $"{ApiBase}/projects");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var resp = await Http.SendAsync(req, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            string text = (await resp.Content.ReadAsStringAsync(ct)).Trim();
+            throw new ApiException((int)resp.StatusCode,
+                string.IsNullOrEmpty(text) ? "failed to load projects" : text);
+        }
+        return (await resp.Content.ReadFromJsonAsync<List<Project>>(AppJson.Options, ct))
+            ?? new List<Project>();
+    }
+
     public async Task<bool> DeleteAllTimeLogsAsync(string token, CancellationToken ct = default)
     {
         var req = new HttpRequestMessage(HttpMethod.Delete, $"{ApiBase}/time-logs");

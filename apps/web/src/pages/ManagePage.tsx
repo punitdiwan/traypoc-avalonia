@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import NavBar from "@/components/NavBar";
 import { overviewApi, projectsApi, usersApi } from "@/lib/api";
 import { formatMoney, toCents } from "@/lib/format";
-import type { Project, Task, User } from "@/types";
+import type { Project, ProjectMember, Task, User } from "@/types";
 
 const inputClass =
   "border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 placeholder:text-gray-400 dark:placeholder:text-gray-500";
@@ -134,6 +134,86 @@ function ProjectCard({ project, currency }: { project: Project; currency: string
           onSave={(cents) => rateMutation.mutate(cents)}
         />
       </div>
+
+      <MembersEditor projectId={project.id} />
+    </div>
+  );
+}
+
+/** Lists a project's assigned employees and lets the owner add/remove them. */
+function MembersEditor({ projectId }: { projectId: string }) {
+  const qc = useQueryClient();
+  const [adding, setAdding] = useState("");
+
+  const { data: members = [] } = useQuery<ProjectMember[]>({
+    queryKey: ["project-members", projectId],
+    queryFn: () => projectsApi.listMembers(projectId),
+  });
+  const { data: employees = [] } = useQuery<User[]>({
+    queryKey: ["employees"],
+    queryFn: usersApi.list,
+  });
+
+  const addMutation = useMutation({
+    mutationFn: (userId: string) => projectsApi.addMember(projectId, userId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["project-members", projectId] }),
+  });
+  const removeMutation = useMutation({
+    mutationFn: (userId: string) => projectsApi.removeMember(projectId, userId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["project-members", projectId] }),
+  });
+
+  const memberIds = new Set(members.map((m) => m.id));
+  const assignable = employees.filter((e) => !memberIds.has(e.id));
+
+  return (
+    <div className="mt-4 border-t border-gray-100 dark:border-gray-800 pt-3">
+      <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-2">
+        Assigned employees
+      </p>
+      {members.length === 0 ? (
+        <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">No one assigned yet.</p>
+      ) : (
+        <div className="flex flex-wrap gap-2 mb-2">
+          {members.map((m) => (
+            <span
+              key={m.id}
+              className="inline-flex items-center gap-1 text-xs bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-full pl-2.5 pr-1.5 py-1"
+            >
+              {m.email}
+              <button
+                onClick={() => removeMutation.mutate(m.id)}
+                disabled={removeMutation.isPending}
+                className="text-gray-400 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-50"
+                title={`Remove ${m.email}`}
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      {assignable.length > 0 && (
+        <select
+          value={adding}
+          onChange={(e) => {
+            const id = e.target.value;
+            if (id) {
+              addMutation.mutate(id);
+              setAdding("");
+            }
+          }}
+          disabled={addMutation.isPending}
+          className="text-xs border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-50"
+        >
+          <option value="">+ Assign employee…</option>
+          {assignable.map((e) => (
+            <option key={e.id} value={e.id}>
+              {e.email}
+            </option>
+          ))}
+        </select>
+      )}
     </div>
   );
 }
@@ -226,15 +306,23 @@ function EmployeesSection({ currency }: { currency: string }) {
   const inviteMutation = useMutation({
     mutationFn: ({ email, password }: { email: string; password: string }) =>
       usersApi.invite(email, password),
-    onSuccess: (user) => {
+    onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: ["employees"] });
       setEmail("");
       setPassword("");
       setInviteError("");
-      setSuccessMsg(`${user.email} invited — tracking enabled.`);
+      setSuccessMsg(`${variables.email} invited — tracking enabled.`);
       setTimeout(() => setSuccessMsg(""), 4000);
     },
     onError: (e) => setInviteError(e instanceof Error ? e.message : "Invite failed"),
+  });
+
+  const releaseMutation = useMutation({
+    mutationFn: (id: string) => usersApi.release(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["employees"] });
+      qc.invalidateQueries({ queryKey: ["projects"] });
+    },
   });
 
   const handleInvite = (e: React.FormEvent) => {
@@ -330,6 +418,21 @@ function EmployeesSection({ currency }: { currency: string }) {
                       emp.can_track ? "translate-x-5" : "translate-x-0"
                     }`}
                   />
+                </button>
+                <button
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        `Release ${emp.email} from this organization? They'll lose access until re-invited (their tracked history is kept).`
+                      )
+                    )
+                      releaseMutation.mutate(emp.id);
+                  }}
+                  disabled={releaseMutation.isPending}
+                  className="text-xs font-medium text-red-600 hover:text-red-700 dark:text-red-400 transition-colors disabled:opacity-50"
+                  title="Remove this employee from your organization"
+                >
+                  Release
                 </button>
               </div>
             </div>

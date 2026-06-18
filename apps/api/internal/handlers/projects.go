@@ -22,16 +22,33 @@ func NewProjectHandler(db *pgxpool.Pool) *ProjectHandler {
 
 func (h *ProjectHandler) List(w http.ResponseWriter, r *http.Request) {
 	userID := mw.UserID(r)
+	orgID := mw.OrgID(r)
 
-	// Employees see projects they're a member of; employers see all their own projects.
-	rows, err := h.db.Query(r.Context(),
-		`SELECT DISTINCT p.id, p.name, p.owner_id, p.hourly_rate_cents, p.created_at
-		 FROM projects p
-		 LEFT JOIN project_members pm ON pm.project_id = p.id
-		 WHERE p.owner_id=$1 OR pm.user_id=$1
-		 ORDER BY p.created_at DESC`,
-		userID,
+	var (
+		rows interface {
+			Close()
+			Next() bool
+			Scan(...any) error
+		}
+		err error
 	)
+	if mw.IsGod(r) {
+		// God sees every project across all organizations.
+		rows, err = h.db.Query(r.Context(),
+			`SELECT id, name, owner_id, hourly_rate_cents, created_at
+			 FROM projects ORDER BY created_at DESC`)
+	} else {
+		// Within the caller's org: employees see projects they're a member of;
+		// employers see the projects they own.
+		rows, err = h.db.Query(r.Context(),
+			`SELECT DISTINCT p.id, p.name, p.owner_id, p.hourly_rate_cents, p.created_at
+			 FROM projects p
+			 LEFT JOIN project_members pm ON pm.project_id = p.id
+			 WHERE p.org_id=$1 AND (p.owner_id=$2 OR pm.user_id=$2)
+			 ORDER BY p.created_at DESC`,
+			orgID, userID,
+		)
+	}
 	if err != nil {
 		http.Error(w, "query error", http.StatusInternalServerError)
 		return
@@ -74,10 +91,16 @@ func (h *ProjectHandler) Create(w http.ResponseWriter, r *http.Request) {
 		req.HourlyRateCents = 0
 	}
 
+	orgID := mw.OrgID(r)
+	if orgID == "" {
+		http.Error(w, "your account is not part of an organization", http.StatusForbidden)
+		return
+	}
+
 	var id uuid.UUID
 	err := h.db.QueryRow(r.Context(),
-		`INSERT INTO projects (name, owner_id, hourly_rate_cents) VALUES ($1,$2,$3) RETURNING id`,
-		req.Name, userID, req.HourlyRateCents,
+		`INSERT INTO projects (name, owner_id, org_id, hourly_rate_cents) VALUES ($1,$2,$3,$4) RETURNING id`,
+		req.Name, userID, orgID, req.HourlyRateCents,
 	).Scan(&id)
 	if err != nil {
 		http.Error(w, "insert error", http.StatusInternalServerError)
@@ -153,6 +176,21 @@ func (h *ProjectHandler) AddMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The assignee must be an employee in the owner's organization.
+	var sameOrg bool
+	h.db.QueryRow(r.Context(),
+		`SELECT EXISTS(
+			SELECT 1 FROM users emp
+			JOIN projects p ON p.id=$1
+			WHERE emp.id=$2 AND emp.role='employee' AND emp.org_id = p.org_id
+		)`,
+		projectID, req.UserID,
+	).Scan(&sameOrg)
+	if !sameOrg {
+		http.Error(w, "user is not an employee in this organization", http.StatusForbidden)
+		return
+	}
+
 	_, err := h.db.Exec(r.Context(),
 		`INSERT INTO project_members (project_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
 		projectID, req.UserID,
@@ -164,8 +202,94 @@ func (h *ProjectHandler) AddMember(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// RemoveMember unassigns an employee from a project (owner-only).
+func (h *ProjectHandler) RemoveMember(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	memberID := chi.URLParam(r, "userId")
+	ownerID := mw.UserID(r)
+
+	var exists bool
+	h.db.QueryRow(r.Context(),
+		`SELECT EXISTS(SELECT 1 FROM projects WHERE id=$1 AND owner_id=$2)`,
+		projectID, ownerID,
+	).Scan(&exists)
+	if !exists {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	_, err := h.db.Exec(r.Context(),
+		`DELETE FROM project_members WHERE project_id=$1 AND user_id=$2`,
+		projectID, memberID,
+	)
+	if err != nil {
+		http.Error(w, "delete error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ListMembers returns the employees assigned to a project (owner-only).
+func (h *ProjectHandler) ListMembers(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	ownerID := mw.UserID(r)
+
+	var exists bool
+	h.db.QueryRow(r.Context(),
+		`SELECT EXISTS(SELECT 1 FROM projects WHERE id=$1 AND owner_id=$2)`,
+		projectID, ownerID,
+	).Scan(&exists)
+	if !exists {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	rows, err := h.db.Query(r.Context(),
+		`SELECT u.id, u.email FROM project_members pm
+		 JOIN users u ON u.id = pm.user_id
+		 WHERE pm.project_id=$1 ORDER BY u.email ASC`,
+		projectID,
+	)
+	if err != nil {
+		http.Error(w, "query error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	type member struct {
+		ID    uuid.UUID `json:"id"`
+		Email string    `json:"email"`
+	}
+	members := []member{}
+	for rows.Next() {
+		var m member
+		if err := rows.Scan(&m.ID, &m.Email); err == nil {
+			members = append(members, m)
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(members)
+}
+
 func (h *ProjectHandler) ListTasks(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
+
+	// Only the project's owner/members (within their org) — or god — may read tasks.
+	if !mw.IsGod(r) {
+		var allowed bool
+		h.db.QueryRow(r.Context(),
+			`SELECT EXISTS(
+				SELECT 1 FROM projects p
+				LEFT JOIN project_members pm ON pm.project_id = p.id
+				WHERE p.id=$1 AND p.org_id=$2 AND (p.owner_id=$3 OR pm.user_id=$3)
+			)`,
+			projectID, mw.OrgID(r), mw.UserID(r),
+		).Scan(&allowed)
+		if !allowed {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+	}
 
 	rows, err := h.db.Query(r.Context(),
 		`SELECT id, project_id, name, created_at FROM tasks WHERE project_id=$1 ORDER BY created_at ASC`,

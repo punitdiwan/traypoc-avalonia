@@ -24,6 +24,10 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(TrackingButtonText))]
     private bool _isTracking;
 
+    /// <summary>Whether the Start/Stop button is enabled — Stop is always allowed
+    /// while running; Start needs a project selected first.</summary>
+    [ObservableProperty] private bool _canToggleTracking;
+
     [ObservableProperty] private string _activeTab = "dashboard";
     [ObservableProperty] private object? _currentPage;
 
@@ -37,17 +41,32 @@ public partial class MainWindowViewModel : ViewModelBase
         DiaryVm = new WorkDiaryViewModel(services);
         SettingsVm = new SettingsViewModel(services);
 
+        // Restore the previously-selected project so tracking can resume.
+        var savedProject = services.Config.Current.SelectedProjectId;
+        if (!string.IsNullOrEmpty(savedProject))
+            services.Tracker.SelectedProjectId = savedProject;
+
         IsAuthenticated = services.Auth.IsAuthenticated;
         IsTracking = services.Tracker.Running;
+        UpdateCanToggleTracking();
 
         services.Auth.AuthChanged += () => Dispatcher.UIThread.Post(SyncAuth);
         services.Tracker.RunningChanged += () =>
-            Dispatcher.UIThread.Post(() => IsTracking = services.Tracker.Running);
+            Dispatcher.UIThread.Post(() =>
+            {
+                IsTracking = services.Tracker.Running;
+                UpdateCanToggleTracking();
+            });
+        services.Tracker.SelectedProjectChanged += () =>
+            Dispatcher.UIThread.Post(UpdateCanToggleTracking);
 
         UpdateCurrentPage();
         if (IsAuthenticated)
             StartSession();
     }
+
+    private void UpdateCanToggleTracking() =>
+        CanToggleTracking = _services.Tracker.Running || _services.Tracker.CanStart;
 
     private void SyncAuth()
     {
@@ -60,10 +79,10 @@ public partial class MainWindowViewModel : ViewModelBase
         UpdateCurrentPage();
     }
 
-    /// <summary>Kick off the background tracker + API sync and start UI refresh.</summary>
+    /// <summary>Start API sync + UI refresh. Tracking itself starts only once the
+    /// employee has picked a project and pressed Start (see <see cref="ToggleTracking"/>).</summary>
     private void StartSession()
     {
-        _services.Tracker.Start();
         _services.Sync.Start();
         DashboardVm.Activate();
     }
@@ -90,7 +109,7 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         if (_services.Tracker.Running)
             _services.Tracker.Stop();
-        else
+        else if (_services.Tracker.CanStart) // refuses to start without a project
             _services.Tracker.Start();
     }
 }

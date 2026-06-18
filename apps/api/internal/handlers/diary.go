@@ -8,6 +8,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	mw "time-tracker/api/internal/middleware"
 )
 
 type DiaryHandler struct {
@@ -49,6 +51,14 @@ func (h *DiaryHandler) Get(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Restrict to the caller's organization (god sees any user's diary).
+	orgFilter := ""
+	args := []any{targetUserID, date.Format("2006-01-02")}
+	if !mw.IsGod(r) {
+		orgFilter = " AND org_id=$3"
+		args = append(args, mw.OrgID(r))
+	}
+
 	rows, err := h.db.Query(r.Context(),
 		`SELECT
 		    EXTRACT(HOUR FROM started_at AT TIME ZONE 'UTC')::int AS hour,
@@ -57,9 +67,9 @@ func (h *DiaryHandler) Get(w http.ResponseWriter, r *http.Request) {
 		    project_id, task_id
 		 FROM time_logs
 		 WHERE user_id=$1
-		   AND started_at::date = $2::date
+		   AND started_at::date = $2::date`+orgFilter+`
 		 ORDER BY started_at ASC`,
-		targetUserID, date.Format("2006-01-02"),
+		args...,
 	)
 	if err != nil {
 		http.Error(w, "query error", http.StatusInternalServerError)

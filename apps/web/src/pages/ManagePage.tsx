@@ -2,8 +2,11 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import NavBar from "@/components/NavBar";
+import NameEditor from "@/components/NameEditor";
+import { Skeleton } from "@/components/Skeleton";
 import { overviewApi, projectsApi, usersApi } from "@/lib/api";
-import { formatMoney, toCents } from "@/lib/format";
+import { useToastStore } from "@/lib/toast";
+import { displayName, formatMoney, MAX_NAME_LEN, normalizeName, toCents } from "@/lib/format";
 import type { Project, ProjectMember, Task, User } from "@/types";
 
 const inputClass =
@@ -20,6 +23,7 @@ function useCurrency(): string {
 export default function ManagePage() {
   const qc = useQueryClient();
   const currency = useCurrency();
+  const addToast = useToastStore((s) => s.addToast);
   const [newProject, setNewProject] = useState("");
   const [newRate, setNewRate] = useState("");
   const [error, setError] = useState("");
@@ -37,8 +41,13 @@ export default function ManagePage() {
       setNewProject("");
       setNewRate("");
       setError("");
+      addToast("Project created successfully");
     },
-    onError: (e) => setError(e instanceof Error ? e.message : "Failed"),
+    onError: (e) => {
+      const msg = e instanceof Error ? e.message : "Failed to create project";
+      setError(msg);
+      addToast(msg, "error");
+    },
   });
 
   const handleCreate = (e: React.FormEvent) => {
@@ -83,7 +92,10 @@ export default function ManagePage() {
 
         {/* Project list */}
         {isLoading ? (
-          <p className="text-gray-400 dark:text-gray-500 text-sm">Loading…</p>
+          <div className="space-y-3">
+            <Skeleton className="h-32 w-full rounded-xl" />
+            <Skeleton className="h-32 w-full rounded-xl" />
+          </div>
         ) : projects.length === 0 ? (
           <p className="text-gray-400 dark:text-gray-500 text-sm">No projects yet.</p>
         ) : (
@@ -102,20 +114,32 @@ export default function ManagePage() {
 
 function ProjectCard({ project, currency }: { project: Project; currency: string }) {
   const qc = useQueryClient();
+  const addToast = useToastStore((s) => s.addToast);
   const { data: tasks = [] } = useQuery<Task[]>({
     queryKey: ["tasks", project.id],
     queryFn: () => projectsApi.listTasks(project.id),
   });
 
-  const rateMutation = useMutation({
-    mutationFn: (cents: number) => projectsApi.update(project.id, { hourly_rate_cents: cents }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["projects"] }),
+  const updateMutation = useMutation({
+    mutationFn: (patch: { name?: string; hourly_rate_cents?: number }) =>
+      projectsApi.update(project.id, patch),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      addToast("Project updated");
+    },
+    onError: (e) => addToast(e instanceof Error ? e.message : "Update failed", "error"),
   });
 
   return (
     <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5">
       <div className="flex items-center justify-between mb-2">
-        <h2 className="font-medium text-gray-900 dark:text-gray-100">{project.name}</h2>
+        <NameEditor
+          value={project.name}
+          fallback="Unnamed Project"
+          pending={updateMutation.isPending}
+          onSave={(name) => updateMutation.mutate({ name })}
+          className="font-medium text-gray-900 dark:text-gray-100"
+        />
         <Link
           to={`/diary/${project.owner_id}`}
           className="text-xs text-brand-600 dark:text-brand-400 hover:underline"
@@ -130,8 +154,8 @@ function ProjectCard({ project, currency }: { project: Project; currency: string
         <RateEditor
           valueCents={project.hourly_rate_cents}
           currency={currency}
-          pending={rateMutation.isPending}
-          onSave={(cents) => rateMutation.mutate(cents)}
+          pending={updateMutation.isPending}
+          onSave={(cents) => updateMutation.mutate({ hourly_rate_cents: cents })}
         />
       </div>
 
@@ -154,13 +178,23 @@ function MembersEditor({ projectId }: { projectId: string }) {
     queryFn: usersApi.list,
   });
 
+  const addToast = useToastStore((s) => s.addToast);
+
   const addMutation = useMutation({
     mutationFn: (userId: string) => projectsApi.addMember(projectId, userId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["project-members", projectId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project-members", projectId] });
+      addToast("Employee assigned to project");
+    },
+    onError: (e) => addToast(e instanceof Error ? e.message : "Assignment failed", "error"),
   });
   const removeMutation = useMutation({
     mutationFn: (userId: string) => projectsApi.removeMember(projectId, userId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["project-members", projectId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project-members", projectId] });
+      addToast("Employee removed from project");
+    },
+    onError: (e) => addToast(e instanceof Error ? e.message : "Removal failed", "error"),
   });
 
   const memberIds = new Set(members.map((m) => m.id));
@@ -179,13 +213,14 @@ function MembersEditor({ projectId }: { projectId: string }) {
             <span
               key={m.id}
               className="inline-flex items-center gap-1 text-xs bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-full pl-2.5 pr-1.5 py-1"
+              title={m.email}
             >
-              {m.email}
+              {displayName(m)}
               <button
                 onClick={() => removeMutation.mutate(m.id)}
                 disabled={removeMutation.isPending}
                 className="text-gray-400 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-50"
-                title={`Remove ${m.email}`}
+                title={`Remove ${displayName(m)}`}
               >
                 ✕
               </button>
@@ -209,7 +244,7 @@ function MembersEditor({ projectId }: { projectId: string }) {
           <option value="">+ Assign employee…</option>
           {assignable.map((e) => (
             <option key={e.id} value={e.id}>
-              {e.email}
+              {displayName(e)}
             </option>
           ))}
         </select>
@@ -282,6 +317,8 @@ function RateEditor({
 
 function EmployeesSection({ currency }: { currency: string }) {
   const qc = useQueryClient();
+  const addToast = useToastStore((s) => s.addToast);
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
@@ -295,26 +332,70 @@ function EmployeesSection({ currency }: { currency: string }) {
   const toggleMutation = useMutation({
     mutationFn: ({ id, canTrack }: { id: string; canTrack: boolean }) =>
       usersApi.setCanTrack(id, canTrack),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["employees"] }),
+    onSuccess: (_, variables) => {
+      qc.invalidateQueries({ queryKey: ["employees"] });
+      addToast(variables.canTrack ? "Tracking enabled" : "Tracking disabled");
+    },
+    onError: (e) => addToast(e instanceof Error ? e.message : "Update failed", "error"),
+  });
+
+  const manualMutation = useMutation({
+    mutationFn: ({ id, allow }: { id: string; allow: boolean }) =>
+      usersApi.setAllowManualTime(id, allow),
+    onSuccess: (_, variables) => {
+      qc.invalidateQueries({ queryKey: ["employees"] });
+      addToast(variables.allow ? "Manual time enabled" : "Manual time disabled");
+    },
+    onError: (e) => addToast(e instanceof Error ? e.message : "Update failed", "error"),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: ({ id, allow }: { id: string; allow: boolean }) =>
+      usersApi.setAllowDelete(id, allow),
+    onSuccess: (_, variables) => {
+      qc.invalidateQueries({ queryKey: ["employees"] });
+      addToast(variables.allow ? "Screenshot deletion enabled" : "Screenshot deletion disabled");
+    },
+    onError: (e) => addToast(e instanceof Error ? e.message : "Update failed", "error"),
   });
 
   const rateMutation = useMutation({
     mutationFn: ({ id, cents }: { id: string; cents: number }) => usersApi.setRate(id, cents),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["employees"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["employees"] });
+      addToast("Rate updated");
+    },
+    onError: (e) => addToast(e instanceof Error ? e.message : "Update failed", "error"),
+  });
+
+  const nameMutation = useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) => usersApi.setName(id, name),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["employees"] });
+      addToast("Name updated");
+    },
+    onError: (e) => addToast(e instanceof Error ? e.message : "Update failed", "error"),
   });
 
   const inviteMutation = useMutation({
-    mutationFn: ({ email, password }: { email: string; password: string }) =>
-      usersApi.invite(email, password),
+    mutationFn: ({ name, email, password }: { name: string; email: string; password: string }) =>
+      usersApi.invite(name, email, password),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: ["employees"] });
+      setFullName("");
       setEmail("");
       setPassword("");
       setInviteError("");
-      setSuccessMsg(`${variables.email} invited — tracking enabled.`);
+      const msg = `${variables.name} invited — tracking enabled.`;
+      setSuccessMsg(msg);
+      addToast("Employee invited");
       setTimeout(() => setSuccessMsg(""), 4000);
     },
-    onError: (e) => setInviteError(e instanceof Error ? e.message : "Invite failed"),
+    onError: (e) => {
+      const msg = e instanceof Error ? e.message : "Invite failed";
+      setInviteError(msg);
+      addToast(msg, "error");
+    },
   });
 
   const releaseMutation = useMutation({
@@ -322,14 +403,17 @@ function EmployeesSection({ currency }: { currency: string }) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["employees"] });
       qc.invalidateQueries({ queryKey: ["projects"] });
+      addToast("Employee released");
     },
+    onError: (e) => addToast(e instanceof Error ? e.message : "Release failed", "error"),
   });
 
   const handleInvite = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || !password.trim()) return;
+    const name = normalizeName(fullName);
+    if (!name || !email.trim() || !password.trim()) return;
     setInviteError("");
-    inviteMutation.mutate({ email: email.trim(), password });
+    inviteMutation.mutate({ name, email: email.trim(), password });
   };
 
   return (
@@ -342,6 +426,15 @@ function EmployeesSection({ currency }: { currency: string }) {
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 mb-6">
         <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Invite Employee</h3>
         <form onSubmit={handleInvite} className="flex flex-col sm:flex-row gap-3">
+          <input
+            type="text"
+            required
+            maxLength={MAX_NAME_LEN}
+            placeholder="Full name"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            className={`flex-1 ${inputClass}`}
+          />
           <input
             type="email"
             required
@@ -372,7 +465,11 @@ function EmployeesSection({ currency }: { currency: string }) {
 
       {/* Employee list */}
       {isLoading ? (
-        <p className="text-gray-400 dark:text-gray-500 text-sm">Loading…</p>
+        <div className="space-y-3">
+          <Skeleton className="h-24 w-full rounded-xl" />
+          <Skeleton className="h-24 w-full rounded-xl" />
+          <Skeleton className="h-24 w-full rounded-xl" />
+        </div>
       ) : employees.length === 0 ? (
         <p className="text-gray-400 dark:text-gray-500 text-sm">No employees yet. Invite one above.</p>
       ) : (
@@ -383,7 +480,15 @@ function EmployeesSection({ currency }: { currency: string }) {
               className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 flex items-center justify-between gap-4"
             >
               <div className="min-w-0">
-                <p className="font-medium text-gray-900 dark:text-gray-100 text-sm truncate">{emp.email}</p>
+                <NameEditor
+                  value={emp.full_name}
+                  fallback={emp.email}
+                  pending={nameMutation.isPending}
+                  onSave={(name) => nameMutation.mutate({ id: emp.id, name })}
+                  className="font-medium text-gray-900 dark:text-gray-100 text-sm truncate"
+                  inputClassName="w-48"
+                />
+                <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{emp.email}</p>
                 <Link
                   to={`/diary/${emp.id}`}
                   className="text-xs text-brand-600 dark:text-brand-400 hover:underline"
@@ -401,29 +506,71 @@ function EmployeesSection({ currency }: { currency: string }) {
                     onSave={(cents) => rateMutation.mutate({ id: emp.id, cents })}
                   />
                 </div>
-                <span className={`text-xs font-medium ${emp.can_track ? "text-green-600 dark:text-green-400" : "text-gray-400 dark:text-gray-500"}`}>
-                  {emp.can_track ? "Tracking on" : "Tracking off"}
-                </span>
-                <button
-                  onClick={() => toggleMutation.mutate({ id: emp.id, canTrack: !emp.can_track })}
-                  disabled={toggleMutation.isPending}
-                  aria-label={emp.can_track ? "Disable tracking" : "Enable tracking"}
-                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-50 ${
-                    emp.can_track ? "bg-brand-600" : "bg-gray-200 dark:bg-gray-700"
-                  }`}
-                  title={emp.can_track ? "Disable tracking" : "Enable tracking"}
-                >
-                  <span
-                    className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200 ${
-                      emp.can_track ? "translate-x-5" : "translate-x-0"
+                <div className="flex flex-col items-center gap-1">
+                  <span className={`text-xs font-medium ${emp.can_track ? "text-green-600 dark:text-green-400" : "text-gray-400 dark:text-gray-500"}`}>
+                    {emp.can_track ? "Tracking on" : "Tracking off"}
+                  </span>
+                  <button
+                    onClick={() => toggleMutation.mutate({ id: emp.id, canTrack: !emp.can_track })}
+                    disabled={toggleMutation.isPending}
+                    aria-label={emp.can_track ? "Disable tracking" : "Enable tracking"}
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-50 ${
+                      emp.can_track ? "bg-brand-600" : "bg-gray-200 dark:bg-gray-700"
                     }`}
-                  />
-                </button>
+                    title={emp.can_track ? "Disable tracking" : "Enable tracking"}
+                  >
+                    <span
+                      className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200 ${
+                        emp.can_track ? "translate-x-5" : "translate-x-0"
+                      }`}
+                    />
+                  </button>
+                </div>
+                <div className="flex flex-col items-center gap-1">
+                  <span className={`text-xs font-medium ${emp.allow_manual_time ? "text-green-600 dark:text-green-400" : "text-gray-400 dark:text-gray-500"}`}>
+                    {emp.allow_manual_time ? "Manual on" : "Manual off"}
+                  </span>
+                  <button
+                    onClick={() => manualMutation.mutate({ id: emp.id, allow: !emp.allow_manual_time })}
+                    disabled={manualMutation.isPending}
+                    aria-label={emp.allow_manual_time ? "Disallow manual time" : "Allow manual time"}
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-50 ${
+                      emp.allow_manual_time ? "bg-brand-600" : "bg-gray-200 dark:bg-gray-700"
+                    }`}
+                    title={emp.allow_manual_time ? "Disallow manual time (screenshot-less)" : "Allow manual time (screenshot-less)"}
+                  >
+                    <span
+                      className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200 ${
+                        emp.allow_manual_time ? "translate-x-5" : "translate-x-0"
+                      }`}
+                    />
+                  </button>
+                </div>
+                <div className="flex flex-col items-center gap-1">
+                  <span className={`text-xs font-medium ${emp.allow_delete ? "text-green-600 dark:text-green-400" : "text-gray-400 dark:text-gray-500"}`}>
+                    {emp.allow_delete ? "Delete on" : "Delete off"}
+                  </span>
+                  <button
+                    onClick={() => deleteMutation.mutate({ id: emp.id, allow: !emp.allow_delete })}
+                    disabled={deleteMutation.isPending}
+                    aria-label={emp.allow_delete ? "Disallow screenshot deletion" : "Allow screenshot deletion"}
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-50 ${
+                      emp.allow_delete ? "bg-brand-600" : "bg-gray-200 dark:bg-gray-700"
+                    }`}
+                    title={emp.allow_delete ? "Disallow deleting screenshots from their diary" : "Allow deleting screenshots from their diary (also deletes the tracked time)"}
+                  >
+                    <span
+                      className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200 ${
+                        emp.allow_delete ? "translate-x-5" : "translate-x-0"
+                      }`}
+                    />
+                  </button>
+                </div>
                 <button
                   onClick={() => {
                     if (
                       window.confirm(
-                        `Release ${emp.email} from this organization? They'll lose access until re-invited (their tracked history is kept).`
+                        `Release ${displayName(emp)} from this organization? They'll lose access until re-invited (their tracked history is kept).`
                       )
                     )
                       releaseMutation.mutate(emp.id);

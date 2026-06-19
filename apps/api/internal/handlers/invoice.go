@@ -49,17 +49,17 @@ func (h *InvoiceHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// The employee must be in the caller's organization (god may invoice anyone).
-	var email string
+	var email, fullName string
 	var empErr error
 	if mw.IsGod(r) {
 		empErr = h.db.QueryRow(r.Context(),
-			`SELECT email FROM users WHERE id=$1 AND role='employee'`, userID,
-		).Scan(&email)
+			`SELECT email, full_name FROM users WHERE id=$1 AND role='employee'`, userID,
+		).Scan(&email, &fullName)
 	} else {
 		empErr = h.db.QueryRow(r.Context(),
-			`SELECT email FROM users WHERE id=$1 AND role='employee' AND org_id=$2`,
+			`SELECT email, full_name FROM users WHERE id=$1 AND role='employee' AND org_id=$2`,
 			userID, mw.OrgID(r),
-		).Scan(&email)
+		).Scan(&email, &fullName)
 	}
 	if empErr != nil {
 		http.Error(w, "employee not found", http.StatusNotFound)
@@ -118,6 +118,7 @@ func (h *InvoiceHandler) Get(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]any{
 		"user_id":       userID,
 		"email":         email,
+		"full_name":     fullName,
 		"from":          from.Format("2006-01-02"),
 		"to":            to.Format("2006-01-02"),
 		"currency":      currencyCode(),

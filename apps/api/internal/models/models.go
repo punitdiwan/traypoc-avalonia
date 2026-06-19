@@ -19,9 +19,12 @@ const (
 type User struct {
 	ID              uuid.UUID  `json:"id"`
 	Email           string     `json:"email"`
+	FullName        string     `json:"full_name"`
 	PasswordHash    string     `json:"-"`
 	Role            Role       `json:"role"`
 	CanTrack        bool       `json:"can_track"`
+	AllowManualTime bool       `json:"allow_manual_time"`
+	AllowDelete     bool       `json:"allow_delete"`
 	HourlyRateCents int        `json:"hourly_rate_cents"`
 	OrgID           *uuid.UUID `json:"org_id"`
 	OrgName         string     `json:"org_name,omitempty"`

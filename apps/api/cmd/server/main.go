@@ -92,6 +92,7 @@ func main() {
 	invoiceH := handlers.NewInvoiceHandler(pool)
 	uploadH := handlers.NewUploadHandler(spacesClient)
 	adminH := handlers.NewAdminHandler(pool)
+	policyH := handlers.NewPolicyHandler(pool)
 
 	r := chi.NewRouter()
 	r.Use(chiMiddleware.Logger)
@@ -125,10 +126,15 @@ func main() {
 		r.Use(mw.RequireAuth)
 
 		r.Get("/auth/me", handlers.Me(pool))
+		r.Patch("/auth/me", authH.UpdateMe)
+
+		// Live policy snapshot the desktop polls (can_track, allow_manual_time, rates).
+		r.Get("/me/policy", policyH.Get)
 
 		// Time logs — employee can CRUD their own
 		r.Route("/time-logs", func(r chi.Router) {
 			r.Get("/", timeH.List)
+			r.Get("/ids", timeH.IDs)
 			r.Post("/", timeH.Create)
 			r.Delete("/", timeH.DeleteAll)
 			r.Get("/{id}", timeH.Get)
@@ -150,8 +156,9 @@ func main() {
 			r.With(mw.RequireRole(models.RoleEmployer)).Post("/{id}/tasks", projH.CreateTask)
 		})
 
-		// Diary — employer only
-		r.With(mw.RequireRole(models.RoleEmployer)).Get("/diary/{userId}", diaryH.Get)
+		// Diary — employer reads any employee in their org; an employee reads only
+		// their own (authorization is enforced inside the handler).
+		r.Get("/diary/{userId}", diaryH.Get)
 
 		// Team overview & billable reports — employer only
 		r.With(mw.RequireRole(models.RoleEmployer)).Get("/overview", overviewH.Get)
@@ -161,7 +168,10 @@ func main() {
 		r.With(mw.RequireRole(models.RoleEmployer)).Get("/users", userH.List)
 		r.With(mw.RequireRole(models.RoleEmployer)).Post("/users", userH.Invite)
 		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/can-track", userH.SetCanTrack)
+		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/allow-manual-time", userH.SetAllowManualTime)
+		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/allow-delete", userH.SetAllowDelete)
 		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/rate", userH.SetRate)
+		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/name", userH.SetName)
 		r.With(mw.RequireRole(models.RoleEmployer)).Delete("/users/{id}/org", userH.Release)
 
 		// God super-admin — cross-organization administration

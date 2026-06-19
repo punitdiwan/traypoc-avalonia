@@ -24,6 +24,7 @@ type orgSummary struct {
 	ID            uuid.UUID `json:"id"`
 	Name          string    `json:"name"`
 	OwnerEmail    string    `json:"owner_email"`
+	OwnerName     string    `json:"owner_full_name"`
 	EmployeeCount int       `json:"employee_count"`
 	CreatedAt     time.Time `json:"created_at"`
 }
@@ -31,7 +32,7 @@ type orgSummary struct {
 // ListOrgs returns every organization with its owner and employee count.
 func (h *AdminHandler) ListOrgs(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.Query(r.Context(),
-		`SELECT o.id, o.name, COALESCE(ow.email, ''), o.created_at,
+		`SELECT o.id, o.name, COALESCE(ow.email, ''), COALESCE(ow.full_name, ''), o.created_at,
 		        (SELECT COUNT(*) FROM users u WHERE u.org_id=o.id AND u.role='employee')
 		 FROM organizations o
 		 LEFT JOIN users ow ON ow.id = o.owner_id
@@ -46,7 +47,7 @@ func (h *AdminHandler) ListOrgs(w http.ResponseWriter, r *http.Request) {
 	orgs := []orgSummary{}
 	for rows.Next() {
 		var o orgSummary
-		if err := rows.Scan(&o.ID, &o.Name, &o.OwnerEmail, &o.CreatedAt, &o.EmployeeCount); err == nil {
+		if err := rows.Scan(&o.ID, &o.Name, &o.OwnerEmail, &o.OwnerName, &o.CreatedAt, &o.EmployeeCount); err == nil {
 			orgs = append(orgs, o)
 		}
 	}
@@ -61,10 +62,16 @@ func (h *AdminHandler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 		OrgName       string `json:"org_name"`
 		OwnerEmail    string `json:"owner_email"`
 		OwnerPassword string `json:"owner_password"`
+		OwnerName     string `json:"owner_full_name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil ||
 		req.OrgName == "" || req.OwnerEmail == "" || req.OwnerPassword == "" {
 		http.Error(w, "org_name, owner_email and owner_password required", http.StatusBadRequest)
+		return
+	}
+	req.OwnerName = normalizeName(req.OwnerName)
+	if req.OwnerName == "" {
+		http.Error(w, "owner_full_name required", http.StatusBadRequest)
 		return
 	}
 
@@ -94,12 +101,12 @@ func (h *AdminHandler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 
 	var ownerID uuid.UUID
 	if err := tx.QueryRow(r.Context(),
-		`INSERT INTO users (email, password_hash, role, can_track)
-		 VALUES ($1,$2,'employer',false)
+		`INSERT INTO users (email, password_hash, role, can_track, full_name)
+		 VALUES ($1,$2,'employer',false,$3)
 		 ON CONFLICT (email) DO UPDATE
-		   SET password_hash=EXCLUDED.password_hash, role='employer'
+		   SET password_hash=EXCLUDED.password_hash, role='employer', full_name=EXCLUDED.full_name
 		 RETURNING id`,
-		req.OwnerEmail, hash,
+		req.OwnerEmail, hash, req.OwnerName,
 	).Scan(&ownerID); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return

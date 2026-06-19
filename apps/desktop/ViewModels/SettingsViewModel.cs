@@ -24,6 +24,12 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] private string _userEmail = "";
     [ObservableProperty] private string _userRole = "";
 
+    /// <summary>Max length of a full name (mirrors the API's normalizeName).</summary>
+    public int MaxNameLength => 30;
+
+    [ObservableProperty] private string _userName = "";
+    [ObservableProperty] private string _saveNameStatus = "Save name";
+
     [ObservableProperty] private string _deleteButtonText = "Delete";
     [ObservableProperty] private string? _deleteResult;
     private bool _deleteConfirming;
@@ -41,6 +47,7 @@ public partial class SettingsViewModel : ViewModelBase
         CaptureIntervalSecs = c.CaptureIntervalSecs;
         IdleThresholdSecs = c.IdleThresholdSecs;
         UserEmail = _services.Auth.UserEmail;
+        UserName = _services.Auth.UserName;
         UserRole = _services.Auth.UserRole;
 
         _applyingAutostart = true;
@@ -69,6 +76,35 @@ public partial class SettingsViewModel : ViewModelBase
         SaveStatus = "Saved!";
         await Task.Delay(2000);
         SaveStatus = "Save Settings";
+    }
+
+    [RelayCommand]
+    private async Task SaveNameAsync()
+    {
+        // Normalize like the server: trim, collapse internal whitespace, cap at 30.
+        var name = string.Join(' ', UserName.Split((char[]?)null,
+            StringSplitOptions.RemoveEmptyEntries));
+        if (name.Length > MaxNameLength)
+            name = name[..MaxNameLength];
+        UserName = name;
+        if (string.IsNullOrEmpty(name))
+        {
+            SaveNameStatus = "Name required";
+            await Task.Delay(2000);
+            SaveNameStatus = "Save name";
+            return;
+        }
+        try
+        {
+            await _services.Auth.UpdateNameAsync(name);
+            SaveNameStatus = "Saved!";
+        }
+        catch (Exception e)
+        {
+            SaveNameStatus = string.IsNullOrWhiteSpace(e.Message) ? "Failed" : e.Message;
+        }
+        await Task.Delay(2000);
+        SaveNameStatus = "Save name";
     }
 
     [RelayCommand]

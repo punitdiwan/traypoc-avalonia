@@ -3,8 +3,11 @@ export type Role = "employee" | "employer" | "god";
 export interface User {
   id: string;
   email: string;
+  full_name: string;
   role: Role;
   can_track: boolean;
+  allow_manual_time: boolean;
+  allow_delete: boolean;
   hourly_rate_cents: number;
   org_id: string | null;
   org_name?: string;
@@ -13,12 +16,14 @@ export interface User {
 export interface ProjectMember {
   id: string;
   email: string;
+  full_name: string;
 }
 
 export interface OrgSummary {
   id: string;
   name: string;
   owner_email: string;
+  owner_full_name: string;
   employee_count: number;
   created_at: string;
 }
@@ -54,6 +59,7 @@ export interface TimeLog {
 }
 
 export interface DiarySlot {
+  id: string;
   hour: number;
   started_at: string;
   ended_at: string;
@@ -90,6 +96,7 @@ export interface DailyPoint {
 export interface EmployeeSummary {
   user_id: string;
   email: string;
+  full_name: string;
   total_seconds: number;
   avg_activity: number;
   can_track: boolean;
@@ -134,6 +141,7 @@ export interface InvoiceLine {
 export interface InvoiceResponse {
   user_id: string;
   email: string;
+  full_name: string;
   from: string;
   to: string;
   currency: string;

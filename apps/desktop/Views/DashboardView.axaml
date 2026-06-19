@@ -1,7 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TrayPoc.ViewModels"
-             xmlns:models="using:TrayPoc.Models"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d" d:DesignWidth="520" d:DesignHeight="700"
@@ -26,24 +25,37 @@
             </Border>
         </Grid>
 
-        <!-- Project selector — required before tracking can start -->
-        <Border Classes="card">
-            <StackPanel Spacing="6">
-                <TextBlock Text="Project" FontSize="11" Foreground="#9ca3af"/>
-                <ComboBox ItemsSource="{Binding Projects}"
-                          SelectedItem="{Binding SelectedProject}"
-                          HorizontalAlignment="Stretch"
-                          PlaceholderText="Select a project to track…"
-                          IsVisible="{Binding HasProjects}">
-                    <ComboBox.ItemTemplate>
-                        <DataTemplate x:DataType="models:Project">
-                            <TextBlock Text="{Binding Name}"/>
-                        </DataTemplate>
-                    </ComboBox.ItemTemplate>
-                </ComboBox>
-                <TextBlock Text="You're not assigned to any project yet. Ask your organization owner to add you to one."
-                           FontSize="12" Foreground="#facc15" TextWrapping="Wrap"
-                           IsVisible="{Binding !HasProjects}"/>
+        <!-- Project selection lives in the always-visible top bar. This card only
+             surfaces the "not assigned" guidance the compact top-bar label can't. -->
+        <Border Classes="card" IsVisible="{Binding !HasProjects}">
+            <TextBlock Text="You're not assigned to any project yet. Ask your organization owner to add you to one."
+                       FontSize="12" Foreground="#facc15" TextWrapping="Wrap"/>
+        </Border>
+
+        <!-- Manual time — only when the employer allows screenshot-less time -->
+        <Border Classes="card" IsVisible="{Binding AllowManualTime}">
+            <StackPanel Spacing="10">
+                <!-- Continuous manual-tracking mode: Start records time without screenshots -->
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                        <TextBlock Text="Manual tracking mode" FontSize="13" Foreground="#e5e7eb"/>
+                        <TextBlock Text="Track time without screenshots — Start logs intervals as “Manual”."
+                                   FontSize="11" Foreground="#9ca3af" TextWrapping="Wrap"/>
+                    </StackPanel>
+                    <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
+                                  IsChecked="{Binding ManualMode}"
+                                  OnContent="On" OffContent="Off"/>
+                </Grid>
+
+                <Border Height="1" Background="#1f2937"/>
+
+                <TextBlock Text="Or add past minutes manually" FontSize="11" Foreground="#9ca3af"/>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBox Text="{Binding ManualMinutes}" Watermark="Minutes" Width="120"/>
+                    <Button Content="Add" Command="{Binding AddManualTimeCommand}"/>
+                </StackPanel>
+                <TextBlock Text="{Binding ManualStatus}" FontSize="11" Foreground="#9ca3af" TextWrapping="Wrap"
+                           IsVisible="{Binding ManualStatus, Converter={x:Static ObjectConverters.IsNotNull}}"/>
             </StackPanel>
         </Border>
 

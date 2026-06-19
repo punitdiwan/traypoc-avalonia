@@ -29,3 +29,19 @@ export function toCents(major: string | number): number {
   if (!isFinite(n) || n < 0) return 0;
   return Math.round(n * 100);
 }
+
+/** Max length of a person's full name (mirrors the API's normalizeName). */
+export const MAX_NAME_LEN = 30;
+
+/**
+ * Normalize a full name to match the server: trim ends, collapse internal
+ * whitespace to single spaces, and cap at MAX_NAME_LEN characters.
+ */
+export function normalizeName(s: string): string {
+  return s.trim().replace(/\s+/g, " ").slice(0, MAX_NAME_LEN);
+}
+
+/** A person's display name: their full name if set, otherwise their email. */
+export function displayName(u: { full_name?: string | null; email: string }): string {
+  return u.full_name && u.full_name.trim() ? u.full_name : u.email;
+}

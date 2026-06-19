@@ -70,12 +70,12 @@ export const authApi = {
   },
 
   // Self-serve signup: creates a new organization and makes the signer its owner.
-  register: async (orgName: string, email: string, password: string) => {
+  register: async (orgName: string, fullName: string, email: string, password: string) => {
     const res = await fetch(`${BASE}/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ org_name: orgName, email, password }),
+      body: JSON.stringify({ org_name: orgName, full_name: fullName, email, password }),
     });
     if (!res.ok) {
       // The API returns {"error": "..."} for the "already a member" conflict.
@@ -99,6 +99,13 @@ export const authApi = {
   },
 
   me: () => request<User>("/auth/me"),
+
+  // Self-service: update the signed-in user's own full name.
+  updateMe: (fullName: string) =>
+    request<void>("/auth/me", {
+      method: "PATCH",
+      body: JSON.stringify({ full_name: fullName }),
+    }),
 };
 
 // Projects
@@ -141,16 +148,33 @@ export const usersApi = {
       method: "PATCH",
       body: JSON.stringify({ can_track: canTrack }),
     }),
+  setAllowManualTime: (userId: string, allow: boolean) =>
+    request<void>(`/users/${userId}/allow-manual-time`, {
+      method: "PATCH",
+      body: JSON.stringify({ allow_manual_time: allow }),
+    }),
+  // Allow an employee to delete their own time logs (and screenshots) from the diary.
+  setAllowDelete: (userId: string, allow: boolean) =>
+    request<void>(`/users/${userId}/allow-delete`, {
+      method: "PATCH",
+      body: JSON.stringify({ allow_delete: allow }),
+    }),
   setRate: (userId: string, hourlyRateCents: number) =>
     request<void>(`/users/${userId}/rate`, {
       method: "PATCH",
       body: JSON.stringify({ hourly_rate_cents: hourlyRateCents }),
     }),
+  // Rename an employee in the caller's organization.
+  setName: (userId: string, fullName: string) =>
+    request<void>(`/users/${userId}/name`, {
+      method: "PATCH",
+      body: JSON.stringify({ full_name: fullName }),
+    }),
   // Invite an employee into the caller's organization (tracking enabled).
-  invite: (email: string, password: string) =>
+  invite: (fullName: string, email: string, password: string) =>
     request<{ id: string }>("/users", {
       method: "POST",
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ full_name: fullName, email, password }),
     }),
   // Release an employee from the organization, freeing their email.
   release: (userId: string) =>
@@ -160,11 +184,17 @@ export const usersApi = {
 // God super-admin (cross-organization)
 export const adminApi = {
   listOrgs: () => request<OrgSummary[]>("/admin/orgs"),
-  createOrg: (orgName: string, ownerEmail: string, ownerPassword: string) =>
+  createOrg: (
+    orgName: string,
+    ownerFullName: string,
+    ownerEmail: string,
+    ownerPassword: string
+  ) =>
     request<{ org_id: string; owner_id: string }>("/admin/orgs", {
       method: "POST",
       body: JSON.stringify({
         org_name: orgName,
+        owner_full_name: ownerFullName,
         owner_email: ownerEmail,
         owner_password: ownerPassword,
       }),
@@ -175,6 +205,9 @@ export const adminApi = {
 export const timeLogsApi = {
   list: (date?: string) =>
     request<TimeLog[]>(`/time-logs${date ? `?date=${date}` : ""}`),
+  // Delete a single time log (and its screenshot). Allowed for the org owner on any
+  // employee, or for the employee themselves when the employer enabled allow_delete.
+  delete: (id: string) => request<void>(`/time-logs/${id}`, { method: "DELETE" }),
 };
 
 // Diary

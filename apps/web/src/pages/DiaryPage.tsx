@@ -1,9 +1,13 @@
 import { useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import NavBar from "@/components/NavBar";
 import DiaryTimeline from "@/components/DiaryTimeline";
-import { diaryApi, projectsApi, usersApi } from "@/lib/api";
+import { Skeleton, StatSkeleton } from "@/components/Skeleton";
+import { diaryApi, projectsApi, timeLogsApi, usersApi } from "@/lib/api";
+import { useAuthStore } from "@/lib/auth";
+import { useToastStore } from "@/lib/toast";
+import { displayName } from "@/lib/format";
 import type { HourBucket } from "@/types";
 
 function shiftDate(iso: string, deltaDays: number): string {
@@ -13,6 +17,22 @@ function shiftDate(iso: string, deltaDays: number): string {
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+// A single bundled placeholder shown for manual (screenshot-less) entries, so they
+// render as a normal image tile instead of a confusing empty box — one static asset
+// reused for every manual entry (no per-entry upload, no extra storage).
+const MANUAL_PLACEHOLDER = "/manual-screenshot.svg";
+
+function withManualPlaceholders(hours: HourBucket[]): HourBucket[] {
+  return hours.map((b) => ({
+    ...b,
+    slots: b.slots.map((s) =>
+      !s.screenshot_url && !s.thumbnail_url && s.window_title === "Manual entry"
+        ? { ...s, screenshot_url: MANUAL_PLACEHOLDER, thumbnail_url: MANUAL_PLACEHOLDER }
+        : s
+    ),
+  }));
+}
 
 // Filter each hour's slots by project, recomputing the bucket totals so the
 // activity bars/stats reflect only the selected project. Empty hours drop out.
@@ -35,11 +55,34 @@ export default function DiaryPage() {
   const [date, setDate] = useState(today);
   const [project, setProject] = useState("all");
 
+  const currentUser = useAuthStore((s) => s.user);
+  const isEmployee = currentUser?.role === "employee";
+  const addToast = useToastStore((s) => s.addToast);
+  const qc = useQueryClient();
+
+  // The employer-only /users list 403s for employees — they only ever view their
+  // own diary, so use their own profile for the header instead.
   const { data: employees = [] } = useQuery({
     queryKey: ["employees"],
     queryFn: usersApi.list,
+    enabled: !isEmployee,
   });
-  const employee = employees.find((e) => e.id === userId);
+  const employee = isEmployee ? currentUser : employees.find((e) => e.id === userId);
+
+  // The org owner can delete any employee's interval; an employee can delete their
+  // own only when the employer granted allow_delete.
+  const canDelete = currentUser
+    ? currentUser.role !== "employee" || !!currentUser.allow_delete
+    : false;
+
+  const del = useMutation({
+    mutationFn: (id: string) => timeLogsApi.delete(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["diary", userId, date] });
+      addToast("Screenshot deleted");
+    },
+    onError: (e) => addToast(e instanceof Error ? e.message : "Delete failed", "error"),
+  });
 
   const { data: projects = [] } = useQuery({
     queryKey: ["projects"],
@@ -53,7 +96,7 @@ export default function DiaryPage() {
   });
 
   const hours = useMemo(
-    () => (data ? filterByProject(data.hours, project) : []),
+    () => (data ? withManualPlaceholders(filterByProject(data.hours, project)) : []),
     [data, project]
   );
 
@@ -75,7 +118,7 @@ export default function DiaryPage() {
           <div>
             <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">Work Diary</h1>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-              {employee?.email ?? <span className="font-mono text-gray-400">{userId}</span>}
+              {employee ? displayName(employee) : <span className="font-mono text-gray-400">{userId}</span>}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -134,13 +177,32 @@ export default function DiaryPage() {
         )}
 
         {/* Timeline */}
-        {isLoading && <p className="text-gray-400 dark:text-gray-500 text-sm">Loading…</p>}
+        {isLoading && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-3 gap-4">
+              <StatSkeleton />
+              <StatSkeleton />
+              <StatSkeleton />
+            </div>
+            <div className="space-y-4">
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-24 w-full" />
+            </div>
+          </div>
+        )}
         {error && (
           <p className="text-sm text-red-600">
             {error instanceof Error ? error.message : "Failed to load diary"}
           </p>
         )}
-        {data && <DiaryTimeline hours={hours} />}
+        {data && (
+          <DiaryTimeline
+            hours={hours}
+            canDelete={canDelete}
+            onDelete={(id) => del.mutate(id)}
+          />
+        )}
       </main>
     </div>
   );

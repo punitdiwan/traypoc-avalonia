@@ -14,6 +14,7 @@ import (
 
 	"time-tracker/api/internal/jobs"
 	mw "time-tracker/api/internal/middleware"
+	"time-tracker/api/internal/models"
 	"time-tracker/api/internal/spaces"
 )
 
@@ -102,6 +103,35 @@ func (h *TimeLogHandler) Create(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "your account is not part of an organization", http.StatusForbidden)
 		return
 	}
+
+	// Authoritative enforcement of the employer's tracking policy (the desktop
+	// poll reacts within ~30s; this rejects anything that slips through that gap
+	// or comes from a stale/hostile client). A screenshot-less entry is a manual
+	// time log and additionally requires allow_manual_time.
+	var canTrack, allowManual bool
+	var canTrackSince time.Time
+	if err := h.db.QueryRow(r.Context(),
+		`SELECT can_track, can_track_since, allow_manual_time FROM users WHERE id=$1`, userID,
+	).Scan(&canTrack, &canTrackSince, &allowManual); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if !canTrack {
+		// Grandfather work captured before tracking was paused: a genuine capture
+		// (carries a screenshot) whose started_at predates the pause is legitimate
+		// buffered work and still syncs. Anything captured at/after the pause — or a
+		// screenshot-less entry — is rejected while paused.
+		grandfathered := req.ScreenshotURL != nil && req.StartedAt.Before(canTrackSince)
+		if !grandfathered {
+			http.Error(w, "time tracking not enabled for your account", http.StatusForbidden)
+			return
+		}
+	}
+	if req.ScreenshotURL == nil && !allowManual {
+		http.Error(w, "manual time entry is not enabled for your account", http.StatusForbidden)
+		return
+	}
+
 	// A project must be selected, and the caller must be a member (or owner) of a
 	// project that lives in their own organization.
 	if req.ProjectID == nil {
@@ -152,6 +182,48 @@ func (h *TimeLogHandler) Create(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"id": id.String()})
 }
 
+// IDs returns the ids of the caller's own time logs whose started_at falls in
+// [from,to] (YYYY-MM-DD; defaults to the last 14 days). The desktop uses this to
+// reconcile: any locally-synced interval in that window whose api_id is absent here
+// was deleted server-side (e.g. from the web Work Diary) and is removed locally.
+func (h *TimeLogHandler) IDs(w http.ResponseWriter, r *http.Request) {
+	userID := mw.UserID(r)
+
+	to := time.Now().UTC()
+	from := to.AddDate(0, 0, -14)
+	if s := r.URL.Query().Get("from"); s != "" {
+		if t, err := time.Parse("2006-01-02", s); err == nil {
+			from = t
+		}
+	}
+	if s := r.URL.Query().Get("to"); s != "" {
+		if t, err := time.Parse("2006-01-02", s); err == nil {
+			to = t
+		}
+	}
+
+	rows, err := h.db.Query(r.Context(),
+		`SELECT id FROM time_logs
+		 WHERE user_id=$1 AND started_at::date BETWEEN $2::date AND $3::date`,
+		userID, from.Format("2006-01-02"), to.Format("2006-01-02"))
+	if err != nil {
+		http.Error(w, "query error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	ids := []string{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err == nil {
+			ids = append(ids, id.String())
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"ids": ids})
+}
+
 func (h *TimeLogHandler) Get(w http.ResponseWriter, r *http.Request) {
 	userID := mw.UserID(r)
 	logID := chi.URLParam(r, "id")
@@ -173,15 +245,41 @@ func (h *TimeLogHandler) Get(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(tl)
 }
 
+// Delete removes a single time log (and its screenshots in Spaces). Authorization:
+//   • god       — any log
+//   • employer  — any log within their own organization (the owner can always delete)
+//   • employee  — only their own log, and only when allow_delete is enabled for them
+// The matching WHERE clause doubles as the access scope, so an unauthorized target
+// simply matches no rows (404) rather than being deleted.
 func (h *TimeLogHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	userID := mw.UserID(r)
 	logID := chi.URLParam(r, "id")
 
-	h.deleteSpacesObjects(r.Context(),
-		`SELECT screenshot_url, thumbnail_url FROM time_logs WHERE id=$1 AND user_id=$2`, logID, userID)
+	var where string
+	var args []any
+	switch {
+	case mw.IsGod(r):
+		where, args = `id=$1`, []any{logID}
+	case mw.Role(r) == models.RoleEmployer:
+		where, args = `id=$1 AND org_id=$2`, []any{logID, mw.OrgID(r)}
+	default: // employee — gated by the employer-granted allow_delete permission
+		var allowed bool
+		if err := h.db.QueryRow(r.Context(),
+			`SELECT allow_delete FROM users WHERE id=$1`, userID).Scan(&allowed); err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if !allowed {
+			http.Error(w, "deleting time logs is not enabled for your account", http.StatusForbidden)
+			return
+		}
+		where, args = `id=$1 AND user_id=$2`, []any{logID, userID}
+	}
 
-	tag, err := h.db.Exec(r.Context(),
-		`DELETE FROM time_logs WHERE id=$1 AND user_id=$2`, logID, userID)
+	h.deleteSpacesObjects(r.Context(),
+		`SELECT screenshot_url, thumbnail_url FROM time_logs WHERE `+where, args...)
+
+	tag, err := h.db.Exec(r.Context(), `DELETE FROM time_logs WHERE `+where, args...)
 	if err != nil || tag.RowsAffected() == 0 {
 		http.Error(w, "not found", http.StatusNotFound)
 		return

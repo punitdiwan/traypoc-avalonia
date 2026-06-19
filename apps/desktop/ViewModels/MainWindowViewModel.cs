@@ -28,8 +28,16 @@ public partial class MainWindowViewModel : ViewModelBase
     /// while running; Start needs a project selected first.</summary>
     [ObservableProperty] private bool _canToggleTracking;
 
+    /// <summary>True when signed in but the employer has turned tracking off — drives
+    /// a banner and disables Start. Updated from the background policy poll.</summary>
+    [ObservableProperty] private bool _trackingDisabledByOrg;
+
     [ObservableProperty] private string _activeTab = "dashboard";
     [ObservableProperty] private object? _currentPage;
+
+    /// <summary>The signed-in user's display name (email as a fallback for legacy
+    /// blank names) — shown in the top bar.</summary>
+    [ObservableProperty] private string _signedInAs = "";
 
     public string TrackingButtonText => IsTracking ? "Stop" : "Start";
 
@@ -48,6 +56,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         IsAuthenticated = services.Auth.IsAuthenticated;
         IsTracking = services.Tracker.Running;
+        UpdateSignedInAs();
         UpdateCanToggleTracking();
 
         services.Auth.AuthChanged += () => Dispatcher.UIThread.Post(SyncAuth);
@@ -59,6 +68,8 @@ public partial class MainWindowViewModel : ViewModelBase
             });
         services.Tracker.SelectedProjectChanged += () =>
             Dispatcher.UIThread.Post(UpdateCanToggleTracking);
+        // Background policy poll → react on the UI thread (gate Start, show banner).
+        services.Policy.Changed += () => Dispatcher.UIThread.Post(SyncPolicy);
 
         UpdateCurrentPage();
         if (IsAuthenticated)
@@ -68,13 +79,39 @@ public partial class MainWindowViewModel : ViewModelBase
     private void UpdateCanToggleTracking() =>
         CanToggleTracking = _services.Tracker.Running || _services.Tracker.CanStart;
 
+    /// <summary>Reflect the latest polled policy: refresh the Start gate and surface
+    /// the "tracking turned off by your organization" banner.</summary>
+    private void SyncPolicy()
+    {
+        TrackingDisabledByOrg = IsAuthenticated && !_services.Policy.CanTrack;
+        IsTracking = _services.Tracker.Running;
+        UpdateCanToggleTracking();
+    }
+
+    /// <summary>Set the top-bar identity label from the current auth state.</summary>
+    private void UpdateSignedInAs() =>
+        SignedInAs = string.IsNullOrWhiteSpace(_services.Auth.UserName)
+            ? _services.Auth.UserEmail
+            : _services.Auth.UserName;
+
     private void SyncAuth()
     {
         IsAuthenticated = _services.Auth.IsAuthenticated;
+        UpdateSignedInAs();
         if (IsAuthenticated)
+        {
             StartSession();
+        }
         else
+        {
+            // Session ended (logout, or a refresh the server refused because tracking
+            // was disabled / the member was released): make sure capture halts and the
+            // policy resets so the next login starts clean.
+            _services.Tracker.Stop();
+            _services.Policy.Reset();
+            TrackingDisabledByOrg = false;
             ActiveTab = "dashboard";
+        }
         SettingsVm.Load();
         UpdateCurrentPage();
     }

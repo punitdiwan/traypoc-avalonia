@@ -51,6 +51,15 @@
         <Border Classes="panel">
             <StackPanel Spacing="12">
                 <TextBlock Text="Account" Classes="section"/>
+                <StackPanel Spacing="2">
+                    <TextBlock Text="Full name" Classes="label"/>
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBox Grid.Column="0" Text="{Binding UserName}" Watermark="Ram Kumar Prasad"
+                                 MaxLength="{Binding MaxNameLength}" VerticalAlignment="Center"/>
+                        <Button Grid.Column="1" Content="{Binding SaveNameStatus}" Margin="8,0,0,0"
+                                Command="{Binding SaveNameCommand}" VerticalAlignment="Center"/>
+                    </Grid>
+                </StackPanel>
                 <Grid ColumnDefinitions="*,Auto">
                     <StackPanel Grid.Column="0" Spacing="2">
                         <TextBlock Text="{Binding UserEmail}" Foreground="#e5e7eb" FontSize="13"/>

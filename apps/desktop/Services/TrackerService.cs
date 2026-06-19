@@ -22,8 +22,12 @@ public sealed class TrackerService
     private readonly ActivityMonitor _activity;
     private readonly SpacesUploader _uploader;
     private readonly AuthService _auth;
+    private readonly PolicyState _policy;
 
     private volatile bool _running;
+    // True while the employer has paused tracking and we were running — so we know
+    // to auto-resume when they re-enable it. Cleared by any explicit Stop().
+    private volatile bool _pausedByPolicy;
     private CancellationTokenSource? _cts;
     private readonly object _startLock = new();
 
@@ -36,7 +40,28 @@ public sealed class TrackerService
     /// <summary>Raised when the selected project changes (drives the Start gate).</summary>
     public event Action? SelectedProjectChanged;
 
+    /// <summary>Raised when manual mode is toggled (drives the Start gate + status).</summary>
+    public event Action? ManualModeChanged;
+
     private volatile string? _selectedProjectId;
+    private volatile bool _manualMode;
+
+    /// <summary>When true, tracking runs without screenshots: each interval logs time
+    /// against the selected project with a "Manual entry" marker and no capture. Only
+    /// usable while the employer allows manual time (<see cref="PolicyState.AllowManualTime"/>).</summary>
+    public bool ManualMode
+    {
+        get => _manualMode;
+        set
+        {
+            // Never enable manual mode the employer hasn't permitted.
+            bool target = value && _policy.AllowManualTime;
+            if (_manualMode == target)
+                return;
+            _manualMode = target;
+            ManualModeChanged?.Invoke();
+        }
+    }
 
     /// <summary>The project new intervals are tracked against. Tracking cannot start
     /// until this is set (the employee must pick a project first).</summary>
@@ -50,16 +75,51 @@ public sealed class TrackerService
         }
     }
 
-    /// <summary>True when a project is selected, so tracking is allowed to start.</summary>
-    public bool CanStart => !string.IsNullOrEmpty(_selectedProjectId);
+    /// <summary>True when a project is selected and the employer allows tracking, so
+    /// tracking is allowed to start. Manual mode additionally requires the employer
+    /// to permit manual (screenshot-less) time.</summary>
+    public bool CanStart => !string.IsNullOrEmpty(_selectedProjectId) && _policy.CanTrack
+        && (!_manualMode || _policy.AllowManualTime);
 
-    public TrackerService(Database db, ConfigState config, ActivityMonitor activity, SpacesUploader uploader, AuthService auth)
+    public TrackerService(Database db, ConfigState config, ActivityMonitor activity, SpacesUploader uploader, AuthService auth, PolicyState policy)
     {
         _db = db;
         _config = config;
         _activity = activity;
         _uploader = uploader;
         _auth = auth;
+        _policy = policy;
+        _policy.Changed += OnPolicyChanged;
+    }
+
+    /// <summary>React to a polled policy change (background thread). can_track is a
+    /// live, reversible switch: when the employer pauses tracking we stop but
+    /// remember we were running, and when they re-enable it we resume automatically
+    /// so a brief pause loses no time. A pause never ends the session.</summary>
+    private void OnPolicyChanged()
+    {
+        // Employer revoked manual-time permission: leave manual mode and stop any
+        // in-progress manual capture (those intervals would now be rejected anyway).
+        if (_manualMode && !_policy.AllowManualTime)
+        {
+            ManualMode = false; // fires ManualModeChanged so the UI toggle clears
+            if (_running)
+                Stop();
+        }
+
+        if (!_policy.CanTrack)
+        {
+            if (_running)
+            {
+                _pausedByPolicy = true;
+                StopInternal();
+            }
+        }
+        else if (_pausedByPolicy)
+        {
+            _pausedByPolicy = false;
+            Start(); // guarded by CanStart (project selected + can_track [+ manual perm])
+        }
     }
 
     public bool Running => _running;
@@ -70,8 +130,9 @@ public sealed class TrackerService
         {
             if (_running)
                 return;
-            // A project must be selected before any time is tracked.
-            if (string.IsNullOrEmpty(_selectedProjectId))
+            // A project must be selected before any time is tracked, the employer
+            // must currently allow tracking, and manual mode needs manual permission.
+            if (!CanStart)
                 return;
             _running = true;
             _cts = new CancellationTokenSource();
@@ -81,7 +142,15 @@ public sealed class TrackerService
         RunningChanged?.Invoke();
     }
 
+    /// <summary>Explicit stop — user toggle, logout, or shutdown. Clears any
+    /// policy-pause resume intent so it won't auto-resume after a deliberate stop.</summary>
     public void Stop()
+    {
+        _pausedByPolicy = false;
+        StopInternal();
+    }
+
+    private void StopInternal()
     {
         lock (_startLock)
         {
@@ -104,6 +173,7 @@ public sealed class TrackerService
             PendingUploads = _db.PendingUploadCount(),
             IsIdle = _activity.IsIdle(cfg.IdleThresholdSecs),
             IdleSecs = _activity.IdleSecs(),
+            Manual = _running && _manualMode,
         };
     }
 
@@ -119,7 +189,9 @@ public sealed class TrackerService
                 long idleThreshold = cfg.IdleThresholdSecs;
                 long intervalSecs = Math.Max(10, cfg.CaptureIntervalSecs);
 
-                if (_activity.IsIdle(idleThreshold))
+                // Manual mode logs time regardless of idle (the employee is asserting
+                // work without screenshots); automatic mode skips capture while idle.
+                if (!_manualMode && _activity.IsIdle(idleThreshold))
                 {
                     UpdateTooltip(intervalSecs, isIdle: true);
                     await Task.Delay(TimeSpan.FromSeconds(IdlePollSecs), ct);
@@ -128,7 +200,10 @@ public sealed class TrackerService
 
                 try
                 {
-                    await CaptureAndUploadAsync(intervalSecs);
+                    if (_manualMode)
+                        LogManualInterval();
+                    else
+                        await CaptureAndUploadAsync(intervalSecs);
                 }
                 catch (Exception e)
                 {
@@ -207,6 +282,17 @@ public sealed class TrackerService
         }
 
         Log.Info($"captured interval {intervalId} activity={activityPct:0}%");
+    }
+
+    /// <summary>Manual-mode tick: record a screenshot-less interval against the
+    /// selected project. No capture, no upload — <see cref="SyncService"/> pushes it
+    /// straight to the API (which accepts it because manual time is permitted).</summary>
+    private void LogManualInterval()
+    {
+        string startTime = DateTimeOffset.UtcNow.ToString(Database.TimeFormat);
+        long intervalId = _db.InsertInterval(startTime, null, null, 0, "Manual entry",
+            _selectedProjectId, manual: true);
+        Log.Info($"logged manual interval {intervalId}");
     }
 
     private void UpdateTooltip(long intervalSecs, bool isIdle)

@@ -40,9 +40,28 @@ CREATE TABLE IF NOT EXISTS users (
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS can_track BOOLEAN NOT NULL DEFAULT false;
 
+-- Human full name (e.g. "Ram Kumar Prasad"). Empty for legacy rows; the UI falls
+-- back to email when blank. Normalized (trimmed, single-spaced, <=30 chars) on write.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name TEXT NOT NULL DEFAULT '';
+
 -- Default billable rate for an employee's time (cents/hour); used as a fallback
 -- when a time log's project has no rate of its own.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS hourly_rate_cents INTEGER NOT NULL DEFAULT 0;
+
+-- Whether the employee may log manual (screenshot-less) time. Off by default:
+-- the desktop only allows manual entry, and the API only accepts screenshot-less
+-- time logs, when an employer turns this on.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS allow_manual_time BOOLEAN NOT NULL DEFAULT false;
+
+-- Whether the employee may delete their own time logs (and the screenshots they
+-- reference) from the web Work Diary. Off by default — the employer opts in per
+-- employee. The org owner can always delete; this only gates employee self-deletion.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS allow_delete BOOLEAN NOT NULL DEFAULT false;
+
+-- When the current can_track value took effect (updated on every toggle). Lets the
+-- API "grandfather" buffered screenshots captured before tracking was paused: such
+-- logs still sync while paused, whereas post-pause writes are rejected.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS can_track_since TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
 CREATE TABLE IF NOT EXISTS projects (
     id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),

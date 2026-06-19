@@ -34,11 +34,11 @@ func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 	)
 	if mw.IsGod(r) {
 		rows, err = h.db.Query(r.Context(),
-			`SELECT id, email, role, can_track, hourly_rate_cents, created_at
+			`SELECT id, email, full_name, role, can_track, allow_manual_time, allow_delete, hourly_rate_cents, created_at
 			 FROM users WHERE role='employee' ORDER BY created_at DESC`)
 	} else {
 		rows, err = h.db.Query(r.Context(),
-			`SELECT id, email, role, can_track, hourly_rate_cents, created_at
+			`SELECT id, email, full_name, role, can_track, allow_manual_time, allow_delete, hourly_rate_cents, created_at
 			 FROM users WHERE role='employee' AND org_id=$1 ORDER BY created_at DESC`,
 			mw.OrgID(r),
 		)
@@ -52,7 +52,7 @@ func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 	var users []models.User
 	for rows.Next() {
 		var u models.User
-		if err := rows.Scan(&u.ID, &u.Email, &u.Role, &u.CanTrack, &u.HourlyRateCents, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.FullName, &u.Role, &u.CanTrack, &u.AllowManualTime, &u.AllowDelete, &u.HourlyRateCents, &u.CreatedAt); err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -78,9 +78,15 @@ func (h *UserHandler) Invite(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
+		FullName string `json:"full_name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" || req.Password == "" {
 		http.Error(w, "email and password required", http.StatusBadRequest)
+		return
+	}
+	req.FullName = normalizeName(req.FullName)
+	if req.FullName == "" {
+		http.Error(w, "full_name required", http.StatusBadRequest)
 		return
 	}
 
@@ -105,13 +111,13 @@ func (h *UserHandler) Invite(w http.ResponseWriter, r *http.Request) {
 	// Insert, or claim a previously-released (org-less) row with the same email.
 	var id uuid.UUID
 	err = h.db.QueryRow(r.Context(),
-		`INSERT INTO users (email, password_hash, role, can_track, org_id)
-		 VALUES ($1,$2,'employee',true,$3)
+		`INSERT INTO users (email, password_hash, role, can_track, org_id, full_name)
+		 VALUES ($1,$2,'employee',true,$3,$4)
 		 ON CONFLICT (email) DO UPDATE
 		   SET password_hash=EXCLUDED.password_hash, role='employee',
-		       can_track=true, org_id=EXCLUDED.org_id
+		       can_track=true, org_id=EXCLUDED.org_id, full_name=EXCLUDED.full_name
 		 RETURNING id`,
-		req.Email, hash, orgID,
+		req.Email, hash, orgID, req.FullName,
 	).Scan(&id)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -181,9 +187,81 @@ func (h *UserHandler) SetCanTrack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Stamp can_track_since whenever the value actually flips, so the time-logs
+	// handler can tell which buffered captures predate a pause (see Create).
 	tag, err := h.execScopedUserUpdate(r,
-		`UPDATE users SET can_track=$1 WHERE id=$2 AND role='employee'`,
+		`UPDATE users
+		 SET can_track=$1,
+		     can_track_since = CASE WHEN can_track <> $1 THEN NOW() ELSE can_track_since END
+		 WHERE id=$2 AND role='employee'`,
 		body.CanTrack, userID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		http.Error(w, "employee not found", http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// SetAllowManualTime toggles whether an employee may log manual (screenshot-less)
+// time. Employer-only, scoped to their org.
+func (h *UserHandler) SetAllowManualTime(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	userID, err := uuid.Parse(idStr)
+	if err != nil {
+		http.Error(w, "invalid user id", http.StatusBadRequest)
+		return
+	}
+
+	var body struct {
+		AllowManualTime bool `json:"allow_manual_time"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+
+	tag, err := h.execScopedUserUpdate(r,
+		`UPDATE users SET allow_manual_time=$1 WHERE id=$2 AND role='employee'`,
+		body.AllowManualTime, userID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		http.Error(w, "employee not found", http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// SetAllowDelete toggles whether an employee may delete their own time logs (and
+// the screenshots they reference) from the web Work Diary. Employer-only, scoped to
+// their org. The org owner can always delete; this only governs employee self-delete.
+func (h *UserHandler) SetAllowDelete(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	userID, err := uuid.Parse(idStr)
+	if err != nil {
+		http.Error(w, "invalid user id", http.StatusBadRequest)
+		return
+	}
+
+	var body struct {
+		AllowDelete bool `json:"allow_delete"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+
+	tag, err := h.execScopedUserUpdate(r,
+		`UPDATE users SET allow_delete=$1 WHERE id=$2 AND role='employee'`,
+		body.AllowDelete, userID)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -229,6 +307,43 @@ func (h *UserHandler) SetRate(w http.ResponseWriter, r *http.Request) {
 	tag, err := h.execScopedUserUpdate(r,
 		`UPDATE users SET hourly_rate_cents=$1 WHERE id=$2 AND role='employee'`,
 		body.HourlyRateCents, userID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		http.Error(w, "employee not found", http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// SetName updates an employee's full name (employer-only, scoped to their org).
+func (h *UserHandler) SetName(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	userID, err := uuid.Parse(idStr)
+	if err != nil {
+		http.Error(w, "invalid user id", http.StatusBadRequest)
+		return
+	}
+
+	var body struct {
+		FullName string `json:"full_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	name := normalizeName(body.FullName)
+	if name == "" {
+		http.Error(w, "full_name required", http.StatusBadRequest)
+		return
+	}
+
+	tag, err := h.execScopedUserUpdate(r,
+		`UPDATE users SET full_name=$1 WHERE id=$2 AND role='employee'`,
+		name, userID)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	mw "time-tracker/api/internal/middleware"
+	"time-tracker/api/internal/models"
 )
 
 type DiaryHandler struct {
@@ -21,6 +22,7 @@ func NewDiaryHandler(db *pgxpool.Pool) *DiaryHandler {
 }
 
 type diarySlot struct {
+	ID              uuid.UUID  `json:"id"`
 	Hour            int        `json:"hour"`
 	StartedAt       time.Time  `json:"started_at"`
 	EndedAt         time.Time  `json:"ended_at"`
@@ -51,16 +53,37 @@ func (h *DiaryHandler) Get(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Restrict to the caller's organization (god sees any user's diary).
+	// Restrict to the caller's organization (god sees any user's diary). Verify
+	// the target user is an employee in the caller's org up front so a cross-org
+	// or unknown id returns 404 rather than a 200 with an empty diary (mirrors
+	// the invoice handler).
 	orgFilter := ""
 	args := []any{targetUserID, date.Format("2006-01-02")}
 	if !mw.IsGod(r) {
+		if mw.Role(r) == models.RoleEmployee {
+			// An employee may only read their own diary.
+			if targetUserID != mw.UserID(r) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+		} else {
+			// An employer may read any employee in their own organization.
+			var exists bool
+			if err := h.db.QueryRow(r.Context(),
+				`SELECT EXISTS(SELECT 1 FROM users WHERE id=$1 AND role='employee' AND org_id=$2)`,
+				targetUserID, mw.OrgID(r),
+			).Scan(&exists); err != nil || !exists {
+				http.Error(w, "employee not found", http.StatusNotFound)
+				return
+			}
+		}
 		orgFilter = " AND org_id=$3"
 		args = append(args, mw.OrgID(r))
 	}
 
 	rows, err := h.db.Query(r.Context(),
 		`SELECT
+		    id,
 		    EXTRACT(HOUR FROM started_at AT TIME ZONE 'UTC')::int AS hour,
 		    started_at, ended_at, duration_seconds, activity_percent,
 		    screenshot_url, thumbnail_url, window_title,
@@ -82,7 +105,7 @@ func (h *DiaryHandler) Get(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var s diarySlot
 		err := rows.Scan(
-			&s.Hour, &s.StartedAt, &s.EndedAt, &s.DurationSeconds,
+			&s.ID, &s.Hour, &s.StartedAt, &s.EndedAt, &s.DurationSeconds,
 			&s.ActivityPercent, &s.ScreenshotURL, &s.ThumbnailURL,
 			&s.WindowTitle, &s.ProjectID, &s.TaskID,
 		)

@@ -13,9 +13,10 @@ import {
   YAxis,
 } from "recharts";
 import NavBar from "@/components/NavBar";
+import { StatSkeleton, CardSkeleton } from "@/components/Skeleton";
 import { overviewApi } from "@/lib/api";
 import { useThemeStore } from "@/lib/theme";
-import { formatHours, formatMoney } from "@/lib/format";
+import { displayName, formatHours, formatMoney } from "@/lib/format";
 import type { DailyPoint, EmployeeSummary, ProjectSummary } from "@/types";
 
 const RANGES = [
@@ -98,7 +99,24 @@ export default function OverviewPage() {
           </div>
         </div>
 
-        {isLoading && <p className="text-gray-400 text-sm">Loading…</p>}
+        {isLoading && (
+          <>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+              <StatSkeleton />
+              <StatSkeleton />
+              <StatSkeleton />
+              <StatSkeleton />
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+              <CardSkeleton />
+              <CardSkeleton />
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <CardSkeleton />
+              <CardSkeleton />
+            </div>
+          </>
+        )}
         {error && (
           <p className="text-sm text-red-600">
             {error instanceof Error ? error.message : "Failed to load overview"}
@@ -228,6 +246,11 @@ function TeamTable({ employees, currency }: { employees: EmployeeSummary[]; curr
     return <p className="text-gray-400 text-sm">No employees yet.</p>;
   }
 
+  const isLive = (iso: string | null) => {
+    if (!iso) return false;
+    return Date.now() - new Date(iso).getTime() < 10 * 60000;
+  };
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -241,44 +264,55 @@ function TeamTable({ employees, currency }: { employees: EmployeeSummary[]; curr
           </tr>
         </thead>
         <tbody>
-          {employees.map((e) => (
-            <tr key={e.user_id} className="border-b border-gray-50 dark:border-gray-800/50 last:border-0">
-              <td className="py-3 pr-3">
-                <div className="flex items-center gap-2">
+          {employees.map((e) => {
+            const live = isLive(e.last_active);
+            return (
+              <tr key={e.user_id} className="border-b border-gray-50 dark:border-gray-800/50 last:border-0">
+                <td className="py-3 pr-3">
+                  <div className="flex items-center gap-2">
+                    <div className="relative shrink-0">
+                      <span
+                        className={`block h-2 w-2 rounded-full ${e.can_track ? "bg-green-500" : "bg-gray-300 dark:bg-gray-600"}`}
+                        title={e.can_track ? "Tracking on" : "Tracking off"}
+                      />
+                      {live && (
+                        <span className="absolute inset-0 h-2 w-2 rounded-full bg-green-500 animate-ping" />
+                      )}
+                    </div>
+                    <span className="text-gray-900 dark:text-gray-100 truncate" title={`${e.full_name || "No name"} (${e.email})`}>
+                      {displayName(e)}
+                    </span>
+                  </div>
+                </td>
+                <td className="py-3 px-2 text-right tabular-nums text-gray-600 dark:text-gray-300">
+                  {formatHours(e.total_seconds)}
+                </td>
+                <td className="py-3 px-2 text-right">
                   <span
-                    className={`h-2 w-2 rounded-full shrink-0 ${e.can_track ? "bg-green-500" : "bg-gray-300 dark:bg-gray-600"}`}
-                    title={e.can_track ? "Tracking on" : "Tracking off"}
-                  />
-                  <span className="text-gray-900 dark:text-gray-100 truncate">{e.email}</span>
-                </div>
-              </td>
-              <td className="py-3 px-2 text-right tabular-nums text-gray-600 dark:text-gray-300">
-                {formatHours(e.total_seconds)}
-              </td>
-              <td className="py-3 px-2 text-right">
-                <span
-                  className="inline-block px-2 py-0.5 rounded-full text-xs font-medium text-white"
-                  style={{ backgroundColor: activityColor(e.avg_activity) }}
-                >
-                  {e.avg_activity}%
-                </span>
-              </td>
-              <td className="py-3 px-2 text-right tabular-nums text-gray-700 dark:text-gray-200">
-                {formatMoney(e.billable_cents, currency)}
-              </td>
-              <td className="py-3 pl-2 text-right">
-                <Link
-                  to={`/diary/${e.user_id}`}
-                  className="text-xs text-brand-600 dark:text-brand-400 hover:underline whitespace-nowrap"
-                  title="Last active"
-                >
-                  {relativeTime(e.last_active)} ›
-                </Link>
-              </td>
-            </tr>
-          ))}
+                    className="inline-block px-2 py-0.5 rounded-full text-xs font-medium text-white"
+                    style={{ backgroundColor: activityColor(e.avg_activity) }}
+                  >
+                    {e.avg_activity}%
+                  </span>
+                </td>
+                <td className="py-3 px-2 text-right tabular-nums text-gray-700 dark:text-gray-200">
+                  {formatMoney(e.billable_cents, currency)}
+                </td>
+                <td className="py-3 pl-2 text-right">
+                  <Link
+                    to={`/diary/${e.user_id}`}
+                    className="text-xs text-brand-600 dark:text-brand-400 hover:underline whitespace-nowrap"
+                    title="Last active"
+                  >
+                    {relativeTime(e.last_active)} ›
+                  </Link>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
   );
 }
+

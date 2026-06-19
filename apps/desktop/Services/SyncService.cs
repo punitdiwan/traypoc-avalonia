@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Text.Json;
@@ -16,20 +18,25 @@ namespace TrayPoc.Services;
 public sealed class SyncService
 {
     private const int IntervalMs = 30_000;
+    // How far back to reconcile web-side deletions each tick. Bounds the id set we
+    // fetch; intervals older than this are assumed settled.
+    private const int ReconcileWindowDays = 14;
 
     private readonly Database _db;
     private readonly AuthService _auth;
     private readonly ApiClient _api;
     private readonly ConfigState _config;
+    private readonly PolicyState _policy;
 
     private CancellationTokenSource? _cts;
 
-    public SyncService(Database db, AuthService auth, ApiClient api, ConfigState config)
+    public SyncService(Database db, AuthService auth, ApiClient api, ConfigState config, PolicyState policy)
     {
         _db = db;
         _auth = auth;
         _api = api;
         _config = config;
+        _policy = policy;
     }
 
     public void Start()
@@ -62,6 +69,10 @@ public sealed class SyncService
         if (string.IsNullOrEmpty(token))
             return;
 
+        // Poll the employer policy first, so a tracking-disabled change halts the
+        // tracker before we attempt to push (and the API would reject anyway).
+        await PollPolicyAsync(ct);
+
         var pending = _db.PendingSyncIntervals();
         long duration = _config.Current.CaptureIntervalSecs;
         if (duration <= 0)
@@ -69,8 +80,10 @@ public sealed class SyncService
 
         foreach (var interval in pending)
         {
-            if (interval.SpacesUrl is null)
-                continue; // only sync intervals already uploaded to Spaces
+            // Automatic intervals only sync once their screenshot has reached Spaces;
+            // manual intervals have no screenshot, so they sync immediately.
+            if (!interval.Manual && interval.SpacesUrl is null)
+                continue;
 
             var ended = DateTimeOffset.Parse(interval.StartTime, CultureInfo.InvariantCulture,
                 DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
@@ -84,7 +97,7 @@ public sealed class SyncService
                 DurationSeconds = duration,
                 ActivityPercent = (int)Math.Round(interval.ActivityPercent),
                 ScreenshotUrl = interval.SpacesUrl,
-                ThumbnailUrl = interval.SpacesUrl.Replace(".png", "_thumb.jpg"),
+                ThumbnailUrl = interval.SpacesUrl?.Replace(".png", "_thumb.jpg"),
                 WindowTitle = interval.WindowTitle,
             };
 
@@ -122,6 +135,91 @@ public sealed class SyncService
         // PNG is redundant. Self-healing — also clears any backlog left by a crash
         // or an earlier failed delete. Thumbnails are kept for the Work Diary.
         PruneUploadedScreenshots();
+
+        // Pull down deletions made on the web (employee/owner removed a screenshot).
+        await ReconcileDeletionsAsync(ct);
+    }
+
+    /// <summary>Fetch the set of server-side time-log ids for a recent window and remove
+    /// any local synced interval (and its cached thumbnail) whose id is no longer there —
+    /// i.e. it was deleted from the web Work Diary. Best-effort: if the fetch fails we skip
+    /// this tick rather than risk deleting local data on a transient error.</summary>
+    private async Task ReconcileDeletionsAsync(CancellationToken ct)
+    {
+        try
+        {
+            var to = DateTimeOffset.UtcNow;
+            string fromS = to.AddDays(-ReconcileWindowDays).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            string toS = to.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+            HashSet<string> serverIds;
+            try
+            {
+                serverIds = await _api.GetTimeLogIdsAsync(fromS, toS, _auth.AccessToken, ct);
+            }
+            catch (ApiException ex) when (ex.StatusCode == 401)
+            {
+                if (!await _auth.RefreshAsync())
+                    return;
+                serverIds = await _api.GetTimeLogIdsAsync(fromS, toS, _auth.AccessToken, ct);
+            }
+
+            foreach (var (id, apiId, thumb) in _db.SyncedIntervalsInRange(fromS, toS))
+            {
+                if (serverIds.Contains(apiId))
+                    continue; // still exists server-side
+                // Deleted on the web → drop the local row + cached thumbnail.
+                try
+                {
+                    if (!string.IsNullOrEmpty(thumb) && File.Exists(thumb))
+                        File.Delete(thumb);
+                }
+                catch (Exception e) { Log.Warn($"reconcile thumb {id}: {e.Message}"); }
+                _db.DeleteInterval(id);
+                Log.Info($"reconcile: removed locally-deleted interval {id} (api {apiId})");
+            }
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"reconcile deletions: {e.Message}");
+        }
+    }
+
+    /// <summary>Fetch the live policy and push it into <see cref="PolicyState"/>,
+    /// refreshing the token once on 401. Runs on the sync loop's background thread.
+    /// Failures are non-fatal — the policy simply isn't updated this tick.</summary>
+    private async Task PollPolicyAsync(CancellationToken ct)
+    {
+        try
+        {
+            PolicyResult policy;
+            try
+            {
+                policy = await _api.GetPolicyAsync(_auth.AccessToken, ct);
+            }
+            catch (ApiException ex) when (ex.StatusCode == 401)
+            {
+                if (!await _auth.RefreshAsync())
+                    return; // refresh rejected (e.g. tracking disabled) → already logged out
+                policy = await _api.GetPolicyAsync(_auth.AccessToken, ct);
+            }
+            _policy.Apply(policy.CanTrack, policy.AllowManualTime, ProjectsSignature(policy.Projects));
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"policy poll: {e.Message}");
+        }
+    }
+
+    /// <summary>Order-independent fingerprint of the assigned projects (id + name +
+    /// rate), so the UI refreshes when an employer adds/removes/renames a project or
+    /// changes its rate.</summary>
+    private static string ProjectsSignature(System.Collections.Generic.List<Project> projects)
+    {
+        var parts = projects
+            .Select(p => $"{p.Id}:{p.Name}:{p.HourlyRateCents}")
+            .OrderBy(s => s, StringComparer.Ordinal);
+        return string.Join("|", parts);
     }
 
     private void PruneUploadedScreenshots()

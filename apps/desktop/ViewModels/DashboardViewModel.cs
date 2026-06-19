@@ -8,6 +8,7 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using TrayPoc.Models;
 using TrayPoc.Services;
 
@@ -32,10 +33,114 @@ public partial class DashboardViewModel : ViewModelBase
     [ObservableProperty] private bool _hasProjects;
     [ObservableProperty] private Project? _selectedProject;
 
+    // Manual (screenshot-less) time entry — only shown when the employer allows it.
+    [ObservableProperty] private bool _allowManualTime;
+    [ObservableProperty] private string _manualMinutes = "";
+    [ObservableProperty] private string? _manualStatus;
+
+    /// <summary>Continuous manual-tracking mode: when on, pressing Start records time
+    /// without screenshots. Mirrors <see cref="TrackerService.ManualMode"/>.</summary>
+    [ObservableProperty] private bool _manualMode;
+
     public ObservableCollection<IntervalItemViewModel> Intervals { get; } = new();
     public ObservableCollection<Project> Projects { get; } = new();
 
-    public DashboardViewModel(AppServices services) => _services = services;
+    public DashboardViewModel(AppServices services)
+    {
+        _services = services;
+        AllowManualTime = _services.Policy.AllowManualTime;
+        ManualMode = _services.Tracker.ManualMode;
+        // The background policy poll may change manual-time permission or the set of
+        // assigned projects (incl. rate edits) — react on the UI thread.
+        _services.Policy.Changed += () => Dispatcher.UIThread.Post(OnPolicyChanged);
+        // The tracker may clear manual mode itself (e.g. permission revoked) — keep
+        // the toggle in sync.
+        _services.Tracker.ManualModeChanged += () =>
+            Dispatcher.UIThread.Post(() => ManualMode = _services.Tracker.ManualMode);
+    }
+
+    private void OnPolicyChanged()
+    {
+        AllowManualTime = _services.Policy.AllowManualTime;
+        ManualMode = _services.Tracker.ManualMode;
+        _ = LoadProjectsAsync();
+    }
+
+    partial void OnManualModeChanged(bool value)
+    {
+        _services.Tracker.ManualMode = value;
+        // The tracker refuses manual mode without employer permission — reflect the
+        // real state back so the toggle can't get stuck on.
+        if (ManualMode != _services.Tracker.ManualMode)
+            ManualMode = _services.Tracker.ManualMode;
+    }
+
+    /// <summary>Log a manual time entry (no screenshot) for the selected project.
+    /// Gated client-side by <see cref="AllowManualTime"/>; the API enforces it too.</summary>
+    [RelayCommand]
+    private async Task AddManualTimeAsync()
+    {
+        ManualStatus = null;
+        if (!AllowManualTime)
+        {
+            ManualStatus = "Manual time isn't enabled for your account.";
+            return;
+        }
+        if (SelectedProject is null)
+        {
+            ManualStatus = "Select a project first.";
+            return;
+        }
+        if (!int.TryParse(ManualMinutes, out int minutes) || minutes <= 0)
+        {
+            ManualStatus = "Enter minutes greater than 0.";
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var body = new TimeLogRequest
+        {
+            ProjectId = SelectedProject.Id,
+            StartedAt = Iso(now.AddMinutes(-minutes)),
+            EndedAt = Iso(now),
+            DurationSeconds = minutes * 60L,
+            ActivityPercent = 0,
+            ScreenshotUrl = null,
+            ThumbnailUrl = null,
+            WindowTitle = "Manual entry",
+        };
+
+        try
+        {
+            var resp = await _services.Api.PostTimeLogAsync(body, _services.Auth.AccessToken);
+            if ((int)resp.StatusCode == 401)
+            {
+                resp.Dispose();
+                if (await _services.Auth.RefreshAsync())
+                    resp = await _services.Api.PostTimeLogAsync(body, _services.Auth.AccessToken);
+            }
+            if (resp.IsSuccessStatusCode)
+            {
+                ManualStatus = $"Added {minutes} min of manual time.";
+                ManualMinutes = "";
+                await RefreshIntervalsAsync();
+            }
+            else
+            {
+                string text = (await resp.Content.ReadAsStringAsync()).Trim();
+                ManualStatus = string.IsNullOrEmpty(text) ? "Failed to add manual time." : text;
+            }
+            resp.Dispose();
+        }
+        catch (Exception e)
+        {
+            ManualStatus = e.Message;
+            Log.Warn($"manual time: {e.Message}");
+        }
+    }
+
+    private static string Iso(DateTimeOffset t) =>
+        t.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fff'Z'", CultureInfo.InvariantCulture);
 
     partial void OnSelectedProjectChanged(Project? value)
     {
@@ -87,11 +192,14 @@ public partial class DashboardViewModel : ViewModelBase
         var status = await Task.Run(() => _services.Tracker.Status());
         long intervalSecs = _services.Config.Current.CaptureIntervalSecs;
 
-        StatusLabel = !status.Running ? "Stopped" : status.IsIdle ? "Idle" : "Tracking";
+        StatusLabel = !status.Running ? "Stopped"
+            : status.Manual ? "Manual Tracking"
+            : status.IsIdle ? "Idle"
+            : "Tracking";
         StatusBrush = !status.Running
-            ? new SolidColorBrush(Color.Parse("#f87171"))   // red
-            : status.IsIdle
-                ? new SolidColorBrush(Color.Parse("#facc15")) // yellow
+            ? new SolidColorBrush(Color.Parse("#f87171"))     // red
+            : status.Manual || status.IsIdle
+                ? new SolidColorBrush(Color.Parse("#facc15"))  // yellow (manual or idle)
                 : new SolidColorBrush(Color.Parse("#4ade80")); // green
 
         IntervalsToday = status.IntervalsToday;
@@ -137,10 +245,12 @@ public sealed class IntervalItemViewModel
     {
         TimeText = ParseLocal(row.StartTime);
         WindowTitle = string.IsNullOrEmpty(row.WindowTitle) ? "Unknown window" : row.WindowTitle!;
-        ActivityText = $"Activity: {Math.Round(row.ActivityPercent)}%";
+        ActivityText = row.Manual ? "Manual entry" : $"Activity: {Math.Round(row.ActivityPercent)}%";
         bool uploaded = row.SpacesUrl is not null;
-        UploadText = uploaded ? "Uploaded" : "Pending upload";
-        UploadBrush = new SolidColorBrush(Color.Parse(uploaded ? "#22c55e" : "#eab308"));
+        // Manual intervals have no screenshot to upload — don't show "Pending upload".
+        UploadText = row.Manual ? "Manual" : uploaded ? "Uploaded" : "Pending upload";
+        UploadBrush = new SolidColorBrush(Color.Parse(
+            row.Manual ? "#9ca3af" : uploaded ? "#22c55e" : "#eab308"));
         Unsynced = !row.Synced;
         Thumb = LoadThumb(row.ThumbPath);
     }

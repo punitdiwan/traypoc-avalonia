@@ -69,7 +69,10 @@ export default function InvoicePage() {
             {/* Bill-to */}
             <div className="mb-6">
               <p className="text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1">Employee</p>
-              <p className="text-gray-900 dark:text-gray-100 font-medium">{data.email}</p>
+              <p className="text-gray-900 dark:text-gray-100 font-medium">{data.full_name || data.email}</p>
+              {data.full_name && (
+                <p className="text-sm text-gray-500 dark:text-gray-400">{data.email}</p>
+              )}
             </div>
 
             {/* Line items */}

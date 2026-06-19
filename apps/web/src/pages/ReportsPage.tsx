@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import NavBar from "@/components/NavBar";
 import { overviewApi } from "@/lib/api";
-import { formatHours, formatMoney } from "@/lib/format";
+import { displayName, formatHours, formatMoney } from "@/lib/format";
 
 function isoDaysAgo(n: number): string {
   const d = new Date();
@@ -42,8 +42,9 @@ export default function ReportsPage() {
   const exportEmployees = () => {
     if (!data) return;
     downloadCSV(`report_employees_${from}_${to}.csv`, [
-      ["Employee", "Hours", "Avg activity %", `Billable (${currency})`],
+      ["Employee", "Email", "Hours", "Avg activity %", `Billable (${currency})`],
       ...data.employees.map((e) => [
+        displayName(e),
         e.email,
         (e.total_seconds / 3600).toFixed(2),
         e.avg_activity,
@@ -106,7 +107,7 @@ export default function ReportsPage() {
             >
               {data.employees.map((e) => (
                 <tr key={e.user_id} className="border-b border-gray-50 dark:border-gray-800/50 last:border-0">
-                  <Td>{e.email}</Td>
+                  <Td><span title={e.email}>{displayName(e)}</span></Td>
                   <Td right>{formatHours(e.total_seconds)}</Td>
                   <Td right>{e.avg_activity}%</Td>
                   <Td right>{formatMoney(e.billable_cents, currency)}</Td>

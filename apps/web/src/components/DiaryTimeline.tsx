@@ -4,6 +4,10 @@ import Lightbox from "@/components/Lightbox";
 
 interface Props {
   hours: HourBucket[];
+  /** Show a per-screenshot delete (✕) control. */
+  canDelete?: boolean;
+  /** Called with the time-log id when the user confirms a delete. */
+  onDelete?: (id: string) => void;
 }
 
 function activityColor(pct: number): string {
@@ -18,7 +22,7 @@ function fmt(hour: number): string {
   return `${h}:00 ${ampm}`;
 }
 
-export default function DiaryTimeline({ hours }: Props) {
+export default function DiaryTimeline({ hours, canDelete, onDelete }: Props) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   // Flatten every slot in chronological order so the lightbox can page
@@ -70,6 +74,25 @@ export default function DiaryTimeline({ hours }: Props) {
                 const flatIndex = runningIndex++;
                 return (
                   <div key={flatIndex} className="relative group">
+                    {canDelete && (
+                      <button
+                        type="button"
+                        title="Delete this screenshot and its tracked time"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (
+                            window.confirm(
+                              "Delete this screenshot and its tracked time? This can't be undone."
+                            )
+                          ) {
+                            onDelete?.(slot.id);
+                          }
+                        }}
+                        className="absolute top-1 right-1 z-10 h-5 w-5 flex items-center justify-center rounded-full bg-gray-900/70 text-white text-xs leading-none border border-white/20 opacity-80 hover:opacity-100 hover:bg-red-600 transition"
+                      >
+                        ×
+                      </button>
+                    )}
                     {slot.thumbnail_url || slot.screenshot_url ? (
                       <button
                         type="button"

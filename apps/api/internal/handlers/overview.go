@@ -37,6 +37,7 @@ type dailyPoint struct {
 type employeeSummary struct {
 	UserID          uuid.UUID  `json:"user_id"`
 	Email           string     `json:"email"`
+	FullName        string     `json:"full_name"`
 	TotalSeconds    int        `json:"total_seconds"`
 	AvgActivity     int        `json:"avg_activity"`
 	CanTrack        bool       `json:"can_track"`
@@ -155,7 +156,7 @@ func (h *OverviewHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	// Per-employee totals (every employee, even with no logs in the window).
 	empRows, err := h.db.Query(r.Context(),
-		`SELECT u.id, u.email, u.can_track, u.hourly_rate_cents,
+		`SELECT u.id, u.email, u.full_name, u.can_track, u.hourly_rate_cents,
 		        COALESCE(SUM(t.duration_seconds),0)::int,
 		        COALESCE(AVG(t.activity_percent),0)::int,
 		        MAX(t.ended_at),
@@ -165,8 +166,8 @@ func (h *OverviewHandler) Get(w http.ResponseWriter, r *http.Request) {
 		        ON t.user_id = u.id AND t.started_at::date BETWEEN $1::date AND $2::date
 		 LEFT JOIN projects p ON p.id = t.project_id
 		 WHERE u.role='employee'`+uOrg+`
-		 GROUP BY u.id, u.email, u.can_track, u.hourly_rate_cents
-		 ORDER BY 5 DESC, u.email ASC`,
+		 GROUP BY u.id, u.email, u.full_name, u.can_track, u.hourly_rate_cents
+		 ORDER BY 6 DESC, u.email ASC`,
 		args...,
 	)
 	if err != nil {
@@ -176,7 +177,7 @@ func (h *OverviewHandler) Get(w http.ResponseWriter, r *http.Request) {
 	employees := make([]employeeSummary, 0)
 	for empRows.Next() {
 		var e employeeSummary
-		if err := empRows.Scan(&e.UserID, &e.Email, &e.CanTrack, &e.HourlyRateCents,
+		if err := empRows.Scan(&e.UserID, &e.Email, &e.FullName, &e.CanTrack, &e.HourlyRateCents,
 			&e.TotalSeconds, &e.AvgActivity, &e.LastActive, &e.BillableCents); err != nil {
 			continue
 		}

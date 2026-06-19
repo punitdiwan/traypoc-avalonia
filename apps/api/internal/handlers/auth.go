@@ -25,6 +25,7 @@ type registerRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 	OrgName  string `json:"org_name"`
+	FullName string `json:"full_name"`
 }
 
 type loginRequest struct {
@@ -42,10 +43,12 @@ type tokenResponse struct {
 	User         struct {
 		ID       string      `json:"id"`
 		Email    string      `json:"email"`
-		Role     models.Role `json:"role"`
-		CanTrack bool        `json:"can_track"`
-		OrgID    string      `json:"org_id"`
-		OrgName  string      `json:"org_name"`
+		FullName string      `json:"full_name"`
+		Role        models.Role `json:"role"`
+		CanTrack    bool        `json:"can_track"`
+		AllowDelete bool        `json:"allow_delete"`
+		OrgID       string      `json:"org_id"`
+		OrgName     string      `json:"org_name"`
 	} `json:"user"`
 }
 
@@ -59,8 +62,9 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid body", http.StatusBadRequest)
 		return
 	}
-	if req.Email == "" || req.Password == "" || req.OrgName == "" {
-		http.Error(w, "email, password and org_name required", http.StatusBadRequest)
+	req.FullName = normalizeName(req.FullName)
+	if req.Email == "" || req.Password == "" || req.OrgName == "" || req.FullName == "" {
+		http.Error(w, "email, password, org_name and full_name required", http.StatusBadRequest)
 		return
 	}
 
@@ -93,13 +97,13 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	// Create the owner user (or claim an existing org-less / released row).
 	var user models.User
 	err = tx.QueryRow(r.Context(),
-		`INSERT INTO users (email, password_hash, role, can_track)
-		 VALUES ($1,$2,'employer',false)
+		`INSERT INTO users (email, password_hash, role, can_track, full_name)
+		 VALUES ($1,$2,'employer',false,$3)
 		 ON CONFLICT (email) DO UPDATE
-		   SET password_hash=EXCLUDED.password_hash, role='employer'
-		 RETURNING id, email, role, can_track, created_at`,
-		req.Email, hash,
-	).Scan(&user.ID, &user.Email, &user.Role, &user.CanTrack, &user.CreatedAt)
+		   SET password_hash=EXCLUDED.password_hash, role='employer', full_name=EXCLUDED.full_name
+		 RETURNING id, email, full_name, role, can_track, created_at`,
+		req.Email, hash, req.FullName,
+	).Scan(&user.ID, &user.Email, &user.FullName, &user.Role, &user.CanTrack, &user.CreatedAt)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -141,29 +145,27 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var user models.User
 	var orgName string
 	err := h.db.QueryRow(r.Context(),
-		`SELECT u.id, u.email, u.password_hash, u.role, u.can_track, u.org_id,
+		`SELECT u.id, u.email, u.full_name, u.password_hash, u.role, u.can_track, u.allow_delete, u.org_id,
 		        COALESCE(o.name, ''), u.created_at
 		 FROM users u LEFT JOIN organizations o ON o.id = u.org_id
 		 WHERE u.email=$1`,
 		req.Email,
-	).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.Role, &user.CanTrack,
-		&user.OrgID, &orgName, &user.CreatedAt)
+	).Scan(&user.ID, &user.Email, &user.FullName, &user.PasswordHash, &user.Role, &user.CanTrack,
+		&user.AllowDelete, &user.OrgID, &orgName, &user.CreatedAt)
 	if err != nil || !auth.CheckPassword(user.PasswordHash, req.Password) {
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
 	user.OrgName = orgName
 
-	// Everyone except god must belong to an organization. A released member has
-	// no org until re-invited (or until they sign up to start their own).
+	// Org membership is the auth gate: everyone except god must belong to an
+	// organization. A released member has no org until re-invited (or until they
+	// sign up to start their own). can_track is NOT checked here — it's a live,
+	// reversible tracking switch, not an access gate: a paused employee may still
+	// sign in (and lands on a paused state), capture is governed by the policy
+	// poll and enforced on writes (see PolicyHandler / timelogs.Create).
 	if user.Role != models.RoleGod && user.OrgID == nil {
 		http.Error(w, "your account is not part of an organization", http.StatusForbidden)
-		return
-	}
-
-	// Desktop login requires time tracking to be enabled by an employer.
-	if user.Role == models.RoleEmployee && !user.CanTrack {
-		http.Error(w, "time tracking not enabled for your account", http.StatusForbidden)
 		return
 	}
 
@@ -193,15 +195,26 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	var user models.User
 	var orgName string
 	err = h.db.QueryRow(r.Context(),
-		`SELECT u.id, u.email, u.role, u.can_track, u.org_id, COALESCE(o.name, '')
+		`SELECT u.id, u.email, u.full_name, u.role, u.can_track, u.org_id, COALESCE(o.name, '')
 		 FROM users u LEFT JOIN organizations o ON o.id = u.org_id
 		 WHERE u.id=$1`, userID,
-	).Scan(&user.ID, &user.Email, &user.Role, &user.CanTrack, &user.OrgID, &orgName)
+	).Scan(&user.ID, &user.Email, &user.FullName, &user.Role, &user.CanTrack, &user.OrgID, &orgName)
 	if err != nil {
 		http.Error(w, "user not found", http.StatusUnauthorized)
 		return
 	}
 	user.OrgName = orgName
+
+	// Re-validate org membership on every refresh: a session must not outlive the
+	// member's seat. A released employee (org_id cleared) can no longer refresh and
+	// the desktop logs itself out — the genuine revocation path. can_track is NOT
+	// checked here: pausing tracking must not end the session (the poll pauses
+	// capture and writes are refused, but the member stays signed in and resumes
+	// automatically when re-enabled).
+	if user.Role != models.RoleGod && user.OrgID == nil {
+		http.Error(w, "your account is not part of an organization", http.StatusUnauthorized)
+		return
+	}
 
 	h.issueTokens(w, user)
 }
@@ -248,8 +261,10 @@ func (h *AuthHandler) issueTokens(w http.ResponseWriter, user models.User) {
 	resp.RefreshToken = refreshToken
 	resp.User.ID = user.ID.String()
 	resp.User.Email = user.Email
+	resp.User.FullName = user.FullName
 	resp.User.Role = user.Role
 	resp.User.CanTrack = user.CanTrack
+	resp.User.AllowDelete = user.AllowDelete
 	resp.User.OrgID = orgID
 	resp.User.OrgName = user.OrgName
 
@@ -269,11 +284,11 @@ func Me(db *pgxpool.Pool) http.HandlerFunc {
 		var user models.User
 		var orgName string
 		err = db.QueryRow(r.Context(),
-			`SELECT u.id, u.email, u.role, u.can_track, u.hourly_rate_cents,
+			`SELECT u.id, u.email, u.full_name, u.role, u.can_track, u.allow_delete, u.hourly_rate_cents,
 			        u.org_id, COALESCE(o.name, ''), u.created_at
 			 FROM users u LEFT JOIN organizations o ON o.id = u.org_id
 			 WHERE u.id=$1`, userID,
-		).Scan(&user.ID, &user.Email, &user.Role, &user.CanTrack, &user.HourlyRateCents,
+		).Scan(&user.ID, &user.Email, &user.FullName, &user.Role, &user.CanTrack, &user.AllowDelete, &user.HourlyRateCents,
 			&user.OrgID, &orgName, &user.CreatedAt)
 		if err != nil {
 			http.Error(w, "not found", http.StatusNotFound)
@@ -283,6 +298,35 @@ func Me(db *pgxpool.Pool) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(user)
 	}
+}
+
+// UpdateMe lets the authenticated user edit their own profile (currently just
+// their full name). Self-service for both web and desktop.
+func (h *AuthHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
+	userID, err := uuid.Parse(mw.UserID(r))
+	if err != nil {
+		http.Error(w, "bad user id", http.StatusBadRequest)
+		return
+	}
+	var body struct {
+		FullName string `json:"full_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	name := normalizeName(body.FullName)
+	if name == "" {
+		http.Error(w, "full_name required", http.StatusBadRequest)
+		return
+	}
+	if _, err := h.db.Exec(r.Context(),
+		`UPDATE users SET full_name=$1 WHERE id=$2`, name, userID,
+	); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // writeJSONError writes a JSON error body so the web can surface specific

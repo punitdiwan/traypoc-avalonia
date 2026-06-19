@@ -245,9 +245,9 @@ func (h *ProjectHandler) ListMembers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.db.Query(r.Context(),
-		`SELECT u.id, u.email FROM project_members pm
+		`SELECT u.id, u.email, u.full_name FROM project_members pm
 		 JOIN users u ON u.id = pm.user_id
-		 WHERE pm.project_id=$1 ORDER BY u.email ASC`,
+		 WHERE pm.project_id=$1 ORDER BY u.full_name ASC, u.email ASC`,
 		projectID,
 	)
 	if err != nil {
@@ -257,13 +257,14 @@ func (h *ProjectHandler) ListMembers(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type member struct {
-		ID    uuid.UUID `json:"id"`
-		Email string    `json:"email"`
+		ID       uuid.UUID `json:"id"`
+		Email    string    `json:"email"`
+		FullName string    `json:"full_name"`
 	}
 	members := []member{}
 	for rows.Next() {
 		var m member
-		if err := rows.Scan(&m.ID, &m.Email); err == nil {
+		if err := rows.Scan(&m.ID, &m.Email, &m.FullName); err == nil {
 			members = append(members, m)
 		}
 	}

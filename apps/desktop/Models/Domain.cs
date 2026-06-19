@@ -13,6 +13,9 @@ public sealed class TimeInterval
     public string? WindowTitle { get; set; }
     public string? ProjectId { get; set; }
     public bool Synced { get; set; }
+    /// <summary>True for a manual-mode interval: no screenshot was captured, so it
+    /// syncs without waiting on a Spaces upload and renders a "Manual" placeholder.</summary>
+    public bool Manual { get; set; }
 }
 
 /// <summary>Port of the Rust <c>TrackerStatus</c>.</summary>
@@ -24,4 +27,7 @@ public sealed class TrackerStatus
     public long PendingUploads { get; set; }
     public bool IsIdle { get; set; }
     public long? IdleSecs { get; set; }
+    /// <summary>True while tracking is running in manual mode (no screenshots) —
+    /// drives the "Manual Tracking" status indicator.</summary>
+    public bool Manual { get; set; }
 }

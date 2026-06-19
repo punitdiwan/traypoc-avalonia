@@ -128,6 +128,61 @@ public sealed class ApiClient
             ?? new List<Project>();
     }
 
+    /// <summary>Fetch the live policy snapshot (can_track, allow_manual_time, projects).
+    /// Polled off the UI thread by <see cref="SyncService"/>. 401 is surfaced as an
+    /// <see cref="ApiException"/> so the caller can refresh + retry.</summary>
+    public async Task<PolicyResult> GetPolicyAsync(string token, CancellationToken ct = default)
+    {
+        var req = new HttpRequestMessage(HttpMethod.Get, $"{ApiBase}/me/policy");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var resp = await Http.SendAsync(req, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            string text = (await resp.Content.ReadAsStringAsync(ct)).Trim();
+            throw new ApiException((int)resp.StatusCode,
+                string.IsNullOrEmpty(text) ? "failed to load policy" : text);
+        }
+        return (await resp.Content.ReadFromJsonAsync<PolicyResult>(AppJson.Options, ct))
+            ?? new PolicyResult();
+    }
+
+    /// <summary>Update the authenticated user's own full name via PATCH /auth/me.</summary>
+    public async Task UpdateMeAsync(string token, string fullName, CancellationToken ct = default)
+    {
+        string json = JsonSerializer.Serialize(new { full_name = fullName }, AppJson.Options);
+        var req = new HttpRequestMessage(HttpMethod.Patch, $"{ApiBase}/auth/me")
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json"),
+        };
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var resp = await Http.SendAsync(req, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            string text = (await resp.Content.ReadAsStringAsync(ct)).Trim();
+            throw new ApiException((int)resp.StatusCode,
+                string.IsNullOrEmpty(text) ? "failed to update name" : text);
+        }
+    }
+
+    /// <summary>Fetch the ids of the caller's server-side time logs whose start date is
+    /// in [from,to] (yyyy-MM-dd). Used to reconcile deletions made on the web: any local
+    /// synced interval missing from this set was deleted server-side. 401 surfaces as an
+    /// <see cref="ApiException"/> so the caller can refresh + retry.</summary>
+    public async Task<HashSet<string>> GetTimeLogIdsAsync(string from, string to, string token, CancellationToken ct = default)
+    {
+        var req = new HttpRequestMessage(HttpMethod.Get, $"{ApiBase}/time-logs/ids?from={from}&to={to}");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var resp = await Http.SendAsync(req, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            string text = (await resp.Content.ReadAsStringAsync(ct)).Trim();
+            throw new ApiException((int)resp.StatusCode,
+                string.IsNullOrEmpty(text) ? "failed to load time-log ids" : text);
+        }
+        var parsed = await resp.Content.ReadFromJsonAsync<TimeLogIdsResult>(AppJson.Options, ct);
+        return new HashSet<string>(parsed?.Ids ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+    }
+
     public async Task<bool> DeleteAllTimeLogsAsync(string token, CancellationToken ct = default)
     {
         var req = new HttpRequestMessage(HttpMethod.Delete, $"{ApiBase}/time-logs");

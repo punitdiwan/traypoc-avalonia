@@ -84,7 +84,7 @@ internal/
   auth/auth.go              # bcrypt + JWT (HS256) issue/validate
   db/db.go                  # pgxpool connect + inline schema migration
   handlers/
-    auth.go                 # POST /auth/register|login|refresh|logout, GET /auth/me
+    auth.go                 # POST /auth/register|login|refresh|logout, GET|PATCH /auth/me
     timelogs.go             # GET|POST|DELETE /time-logs[/:id]
     projects.go             # GET|POST /projects, tasks, members
     diary.go                # GET /diary/:userId  (employer-only)
@@ -95,8 +95,9 @@ internal/
 ```
 
 Routes summary:
-- `POST /auth/register|login` — issues access token (body) + refresh token (httpOnly cookie for web, also in body for desktop)
+- `POST /auth/register|login` — issues access token (body) + refresh token (httpOnly cookie for web, also in body for desktop). `register` requires `full_name` (the owner's name)
 - `POST /auth/refresh` — accepts refresh token in body `{"refresh_token":"..."}` OR httpOnly cookie
+- `PATCH /auth/me` — self-service, update the signed-in user's own `{full_name}`
 - `GET /time-logs?date=YYYY-MM-DD` — employee's own logs
 - `POST /time-logs` — desktop app syncs intervals here
 - `GET /projects`, `POST /projects` (employer only)
@@ -105,13 +106,34 @@ Routes summary:
 - `GET /invoice?user_id=&from=&to=` — employer-only billable timesheet for one employee, line items grouped by project
 - `PATCH /projects/:id` — employer-only, update project `{name?, hourly_rate_cents?}`
 - `GET /users` — employer-only, list all employees
+- `POST /users` — employer-only, invite an employee; requires `{full_name, email, password}`
 - `PATCH /users/:id/can-track` — employer-only, toggle `{"can_track": true/false}` per employee
+- `PATCH /users/:id/allow-manual-time` — employer-only, toggle `{"allow_manual_time": true/false}` per employee
 - `PATCH /users/:id/rate` — employer-only, set employee default `{"hourly_rate_cents": N}`
+- `PATCH /users/:id/name` — employer-only, rename an employee `{"full_name": "..."}`
+- `GET /me/policy` — authed; live policy snapshot the desktop polls: `{can_track, allow_manual_time, projects:[{id,name,hourly_rate_cents}]}`
+
+**Person names:** every user has a `users.full_name` (e.g. `Ram Kumar Prasad`), captured
+at signup / invite / god create-org (the last takes `owner_full_name`). Names are
+normalized server-side (`normalizeName`: trimmed, internal whitespace collapsed to single
+spaces, capped at 30 chars) and mirrored client-side (`normalizeName`/`displayName` in
+web `lib/format.ts`). The UI shows the name with email as a fallback for legacy blank rows.
 
 **Billing:** rates are stored as integer cents/hour on `projects.hourly_rate_cents` and `users.hourly_rate_cents`. A time log's billable rate = the project's rate when set (> 0), else the employee's default rate; amount = `seconds × rate / 3600`. Currency is org-wide via the `CURRENCY` env (ISO 4217, default `INR`); the web app formats cents with `Intl.NumberFormat`.
 - asynq jobs: `report:weekly`, `screenshot:thumbnail`
 
-**Desktop login guard:** `POST /auth/login` returns 403 if the employee has `can_track = false`. Employers must enable tracking via the web dashboard before an employee can log in on the desktop.
+**Auth gate vs. tracking switch:** org membership is the auth gate — `POST /auth/login`
+and `/auth/refresh` reject (403/401) a non-god user with no `org_id`, so *releasing* an
+employee from the org logs their desktop out. `can_track` is a separate **live, reversible
+tracking switch**, not an auth gate: a paused employee can still sign in (landing on a
+paused state). The desktop polls `GET /me/policy` (~30s, off the UI thread) and stops/auto-
+resumes capture as `can_track` flips; `POST /time-logs` independently rejects writes when
+`can_track` is off, and rejects screenshot-less ("manual") entries unless `allow_manual_time`
+is on. So enforcement is server-side; the poll just makes the desktop react quickly.
+Buffered captures are **grandfathered**: when `can_track` is off, a screenshot-bearing log
+whose `started_at` predates `users.can_track_since` (the moment the current pause began) is
+still accepted, so work captured before a pause syncs through; anything captured at/after the
+pause is rejected.
 
 ### Web Dashboard (`apps/web/`) — React + Vite
 

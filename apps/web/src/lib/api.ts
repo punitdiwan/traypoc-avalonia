@@ -112,6 +112,24 @@ export const authApi = {
       method: "PATCH",
       body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
     }),
+
+  forgotPassword: async (email: string) => {
+    const res = await fetch(`${BASE}/auth/forgot-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+  },
+
+  resetPassword: async (token: string, newPassword: string) => {
+    const res = await fetch(`${BASE}/auth/reset-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, new_password: newPassword }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+  },
 };
 
 // Projects

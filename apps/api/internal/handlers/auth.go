@@ -1,8 +1,15 @@
 package handlers
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
+	"net/smtp"
+	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -379,6 +386,159 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ForgotPassword issues a one-time reset link for the given email. Always
+// responds 200 whether or not the email exists (no user enumeration). If SMTP
+// is configured, sends an email; otherwise logs the link to stdout (dev mode).
+func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Email == "" {
+		http.Error(w, "email required", http.StatusBadRequest)
+		return
+	}
+
+	var userID uuid.UUID
+	err := h.db.QueryRow(r.Context(),
+		`SELECT id FROM users WHERE email=$1`, body.Email,
+	).Scan(&userID)
+	if err != nil {
+		// Unknown email — respond the same as success to avoid enumeration.
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// Generate a 32-byte random token; store SHA-256 hash in DB.
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	tokenPlain := hex.EncodeToString(raw)
+	sum := sha256.Sum256([]byte(tokenPlain))
+	tokenHash := hex.EncodeToString(sum[:])
+
+	// Delete any previous unused token for this user before inserting a new one.
+	h.db.Exec(r.Context(),
+		`DELETE FROM password_reset_tokens WHERE user_id=$1 AND used_at IS NULL`, userID)
+
+	if _, err := h.db.Exec(r.Context(),
+		`INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+		 VALUES ($1, $2, NOW() + INTERVAL '1 hour')`,
+		userID, tokenHash,
+	); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Build the reset URL. CORS_ORIGIN doubles as the web app's base URL; fall back
+	// to localhost for local dev.
+	origin := os.Getenv("CORS_ORIGIN")
+	if origin == "" {
+		origin = "http://localhost:5173"
+	}
+	resetURL := fmt.Sprintf("%s/reset-password?token=%s", origin, tokenPlain)
+
+	sendResetEmail(body.Email, resetURL)
+	w.WriteHeader(http.StatusOK)
+}
+
+// ResetPassword validates a one-time token and updates the user's password.
+func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Token       string `json:"token"`
+		NewPassword string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil ||
+		body.Token == "" || body.NewPassword == "" {
+		http.Error(w, "token and new_password required", http.StatusBadRequest)
+		return
+	}
+	if len(body.NewPassword) < 8 {
+		http.Error(w, "new password must be at least 8 characters", http.StatusBadRequest)
+		return
+	}
+
+	sum := sha256.Sum256([]byte(body.Token))
+	tokenHash := hex.EncodeToString(sum[:])
+
+	var tokenID uuid.UUID
+	var userID uuid.UUID
+	err := h.db.QueryRow(r.Context(),
+		`SELECT id, user_id FROM password_reset_tokens
+		 WHERE token_hash=$1 AND used_at IS NULL AND expires_at > NOW()`,
+		tokenHash,
+	).Scan(&tokenID, &userID)
+	if err != nil {
+		http.Error(w, "invalid or expired reset token", http.StatusBadRequest)
+		return
+	}
+
+	newHash, err := auth.HashPassword(body.NewPassword)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	tx, err := h.db.Begin(r.Context())
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	if _, err := tx.Exec(r.Context(),
+		`UPDATE users SET password_hash=$1 WHERE id=$2`, newHash, userID,
+	); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if _, err := tx.Exec(r.Context(),
+		`UPDATE password_reset_tokens SET used_at=NOW() WHERE id=$1`, tokenID,
+	); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// sendResetEmail sends the reset link by email if SMTP is configured; otherwise
+// logs it to stdout so dev environments still work without an email server.
+func sendResetEmail(toEmail, resetURL string) {
+	host := os.Getenv("SMTP_HOST")
+	if host == "" {
+		log.Printf("[FORGOT PASSWORD] Reset URL for %s → %s\n", toEmail, resetURL)
+		return
+	}
+	port := os.Getenv("SMTP_PORT")
+	if port == "" {
+		port = "587"
+	}
+	user := os.Getenv("SMTP_USER")
+	pass := os.Getenv("SMTP_PASS")
+	from := os.Getenv("SMTP_FROM")
+	if from == "" {
+		from = user
+	}
+
+	subject := "Reset your TimeTracker password"
+	body := fmt.Sprintf("Click the link below to reset your password (expires in 1 hour):\n\n%s\n\nIf you did not request this, ignore this email.", resetURL)
+	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\n\r\n%s", from, toEmail, subject, body)
+
+	addr := fmt.Sprintf("%s:%s", host, port)
+	var a smtp.Auth
+	if user != "" {
+		a = smtp.PlainAuth("", user, pass, host)
+	}
+	if err := smtp.SendMail(addr, a, from, []string{toEmail}, []byte(msg)); err != nil {
+		log.Printf("[FORGOT PASSWORD] SMTP send failed for %s: %v (URL: %s)\n", toEmail, err, resetURL)
+	}
 }
 
 // writeJSONError writes a JSON error body so the web can surface specific

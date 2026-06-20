@@ -129,6 +129,15 @@ ALTER TABLE time_logs ADD COLUMN IF NOT EXISTS notes TEXT;
 CREATE INDEX IF NOT EXISTS users_org     ON users (org_id);
 CREATE INDEX IF NOT EXISTS projects_org  ON projects (org_id);
 CREATE INDEX IF NOT EXISTS time_logs_org ON time_logs (org_id, started_at DESC);
+
+-- Password reset tokens: one-time, short-lived tokens for the forgot-password flow.
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at    TIMESTAMPTZ
+);
 `
 
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {

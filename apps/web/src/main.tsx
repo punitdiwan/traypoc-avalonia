@@ -6,6 +6,8 @@ import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router-dom
 import "./index.css";
 import LoginPage from "./pages/LoginPage";
 import SignupPage from "./pages/SignupPage";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
 import ManagePage from "./pages/ManagePage";
 import AdminPage from "./pages/AdminPage";
 import DiaryPage from "./pages/DiaryPage";
@@ -53,6 +55,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route element={<ProtectedRoute />}>
             <Route path="/dashboard" element={<DashboardRoute />} />
             {/* Own diary for employees; any org employee for employer/god. */}

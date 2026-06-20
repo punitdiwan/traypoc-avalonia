@@ -60,13 +60,18 @@ export default function Lightbox({ slots, index, onClose, onNavigate }: Props) {
         className="flex items-center justify-between px-5 py-3 text-white/90"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="text-sm font-medium truncate">
             {slot.window_title || "Untitled window"}
           </p>
           <p className="text-xs text-white/60">
             {fmtTime(slot.started_at)} · {index + 1} of {slots.length}
           </p>
+          {slot.notes && (
+            <p className="text-xs text-white/80 mt-1 italic line-clamp-2" title={slot.notes}>
+              {slot.notes}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <span

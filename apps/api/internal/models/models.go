@@ -25,6 +25,7 @@ type User struct {
 	CanTrack        bool       `json:"can_track"`
 	AllowManualTime bool       `json:"allow_manual_time"`
 	AllowDelete     bool       `json:"allow_delete"`
+	RequireNotes    bool       `json:"require_notes"`
 	HourlyRateCents int        `json:"hourly_rate_cents"`
 	OrgID           *uuid.UUID `json:"org_id"`
 	OrgName         string     `json:"org_name,omitempty"`

@@ -34,10 +34,10 @@ type policyProject struct {
 func (h *PolicyHandler) Get(w http.ResponseWriter, r *http.Request) {
 	userID := mw.UserID(r)
 
-	var canTrack, allowManual bool
+	var canTrack, allowManual, requireNotes bool
 	if err := h.db.QueryRow(r.Context(),
-		`SELECT can_track, allow_manual_time FROM users WHERE id=$1`, userID,
-	).Scan(&canTrack, &allowManual); err != nil {
+		`SELECT can_track, allow_manual_time, require_notes FROM users WHERE id=$1`, userID,
+	).Scan(&canTrack, &allowManual, &requireNotes); err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
@@ -87,6 +87,7 @@ func (h *PolicyHandler) Get(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{
 		"can_track":         canTrack,
 		"allow_manual_time": allowManual,
+		"require_notes":     requireNotes,
 		"projects":          projects,
 	})
 }

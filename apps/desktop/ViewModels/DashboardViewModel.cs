@@ -42,6 +42,15 @@ public partial class DashboardViewModel : ViewModelBase
     /// without screenshots. Mirrors <see cref="TrackerService.ManualMode"/>.</summary>
     [ObservableProperty] private bool _manualMode;
 
+    /// <summary>Free-text notes for the current/next captured interval. Auto-carried:
+    /// persists until the employee changes it. Required before Start when the employer
+    /// has set <see cref="RequireNotes"/>.</summary>
+    [ObservableProperty] private string _workingNotes = "";
+
+    /// <summary>True when the employer requires non-blank working notes on every
+    /// captured interval — drives the asterisk hint and the "Notes required" tooltip.</summary>
+    [ObservableProperty] private bool _requireNotes;
+
     public ObservableCollection<IntervalItemViewModel> Intervals { get; } = new();
     public ObservableCollection<Project> Projects { get; } = new();
 
@@ -49,7 +58,9 @@ public partial class DashboardViewModel : ViewModelBase
     {
         _services = services;
         AllowManualTime = _services.Policy.AllowManualTime;
+        RequireNotes = _services.Policy.RequireNotes;
         ManualMode = _services.Tracker.ManualMode;
+        WorkingNotes = _services.Tracker.WorkingNotes;
         // The background policy poll may change manual-time permission or the set of
         // assigned projects (incl. rate edits) — react on the UI thread.
         _services.Policy.Changed += () => Dispatcher.UIThread.Post(OnPolicyChanged);
@@ -62,6 +73,7 @@ public partial class DashboardViewModel : ViewModelBase
     private void OnPolicyChanged()
     {
         AllowManualTime = _services.Policy.AllowManualTime;
+        RequireNotes = _services.Policy.RequireNotes;
         ManualMode = _services.Tracker.ManualMode;
         _ = LoadProjectsAsync();
     }
@@ -108,6 +120,7 @@ public partial class DashboardViewModel : ViewModelBase
             ScreenshotUrl = null,
             ThumbnailUrl = null,
             WindowTitle = "Manual entry",
+            Notes = string.IsNullOrWhiteSpace(WorkingNotes) ? null : WorkingNotes.Trim(),
         };
 
         try
@@ -146,6 +159,11 @@ public partial class DashboardViewModel : ViewModelBase
     {
         _services.Tracker.SelectedProjectId = value?.Id;
         _services.Config.SetSelectedProjectId(value?.Id ?? "");
+    }
+
+    partial void OnWorkingNotesChanged(string value)
+    {
+        _services.Tracker.WorkingNotes = value;
     }
 
     private async Task LoadProjectsAsync()
@@ -192,15 +210,18 @@ public partial class DashboardViewModel : ViewModelBase
         var status = await Task.Run(() => _services.Tracker.Status());
         long intervalSecs = _services.Config.Current.CaptureIntervalSecs;
 
-        StatusLabel = !status.Running ? "Stopped"
+        StatusLabel = !status.Running
+            ? (status.PausedByIdle ? "Auto-paused (idle)" : "Stopped")
             : status.Manual ? "Manual Tracking"
             : status.IsIdle ? "Idle"
             : "Tracking";
         StatusBrush = !status.Running
-            ? new SolidColorBrush(Color.Parse("#f87171"))     // red
+            ? (status.PausedByIdle
+                ? new SolidColorBrush(Color.Parse("#facc15"))  // yellow: auto-paused by idle
+                : new SolidColorBrush(Color.Parse("#f87171"))) // red: manually stopped
             : status.Manual || status.IsIdle
-                ? new SolidColorBrush(Color.Parse("#facc15"))  // yellow (manual or idle)
-                : new SolidColorBrush(Color.Parse("#4ade80")); // green
+                ? new SolidColorBrush(Color.Parse("#facc15"))  // yellow: manual or skipping idle
+                : new SolidColorBrush(Color.Parse("#4ade80")); // green: actively tracking
 
         IntervalsToday = status.IntervalsToday;
         PendingUploads = status.PendingUploads;
@@ -211,7 +232,8 @@ public partial class DashboardViewModel : ViewModelBase
 
     private async Task RefreshIntervalsAsync()
     {
-        var rows = await Task.Run(() => _services.Db.RecentIntervals(20));
+        string today = DateTime.UtcNow.ToString("yyyy-MM-dd");
+        var rows = await Task.Run(() => _services.Db.GetIntervalsForDate(today));
 
         Intervals.Clear();
         foreach (var row in rows)

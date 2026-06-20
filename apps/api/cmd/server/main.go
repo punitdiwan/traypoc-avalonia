@@ -127,6 +127,7 @@ func main() {
 
 		r.Get("/auth/me", handlers.Me(pool))
 		r.Patch("/auth/me", authH.UpdateMe)
+		r.Patch("/auth/password", authH.ChangePassword)
 
 		// Live policy snapshot the desktop polls (can_track, allow_manual_time, rates).
 		r.Get("/me/policy", policyH.Get)
@@ -170,6 +171,7 @@ func main() {
 		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/can-track", userH.SetCanTrack)
 		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/allow-manual-time", userH.SetAllowManualTime)
 		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/allow-delete", userH.SetAllowDelete)
+		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/require-notes", userH.SetRequireNotes)
 		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/rate", userH.SetRate)
 		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/name", userH.SetName)
 		r.With(mw.RequireRole(models.RoleEmployer)).Delete("/users/{id}/org", userH.Release)

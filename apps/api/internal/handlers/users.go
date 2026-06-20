@@ -34,12 +34,14 @@ func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 	)
 	if mw.IsGod(r) {
 		rows, err = h.db.Query(r.Context(),
-			`SELECT id, email, full_name, role, can_track, allow_manual_time, allow_delete, hourly_rate_cents, created_at
-			 FROM users WHERE role='employee' ORDER BY created_at DESC`)
+			`SELECT u.id, u.email, u.full_name, u.role, u.can_track, u.allow_manual_time, u.allow_delete, u.require_notes, u.hourly_rate_cents, u.created_at, COALESCE(o.name, '') as org_name
+			 FROM users u LEFT JOIN organizations o ON o.id = u.org_id
+			 WHERE u.role='employee' ORDER BY o.name NULLS LAST, u.created_at DESC`)
 	} else {
 		rows, err = h.db.Query(r.Context(),
-			`SELECT id, email, full_name, role, can_track, allow_manual_time, allow_delete, hourly_rate_cents, created_at
-			 FROM users WHERE role='employee' AND org_id=$1 ORDER BY created_at DESC`,
+			`SELECT u.id, u.email, u.full_name, u.role, u.can_track, u.allow_manual_time, u.allow_delete, u.require_notes, u.hourly_rate_cents, u.created_at, COALESCE(o.name, '') as org_name
+			 FROM users u LEFT JOIN organizations o ON o.id = u.org_id
+			 WHERE u.role='employee' AND u.org_id=$1 ORDER BY u.created_at DESC`,
 			mw.OrgID(r),
 		)
 	}
@@ -52,7 +54,7 @@ func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 	var users []models.User
 	for rows.Next() {
 		var u models.User
-		if err := rows.Scan(&u.ID, &u.Email, &u.FullName, &u.Role, &u.CanTrack, &u.AllowManualTime, &u.AllowDelete, &u.HourlyRateCents, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.FullName, &u.Role, &u.CanTrack, &u.AllowManualTime, &u.AllowDelete, &u.RequireNotes, &u.HourlyRateCents, &u.CreatedAt, &u.OrgName); err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -262,6 +264,40 @@ func (h *UserHandler) SetAllowDelete(w http.ResponseWriter, r *http.Request) {
 	tag, err := h.execScopedUserUpdate(r,
 		`UPDATE users SET allow_delete=$1 WHERE id=$2 AND role='employee'`,
 		body.AllowDelete, userID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		http.Error(w, "employee not found", http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// SetRequireNotes toggles the require_notes flag for an employee: when on, the
+// employee must supply non-empty working notes on every time log (enforced by the
+// API and gated in the desktop app client-side for immediate feedback).
+func (h *UserHandler) SetRequireNotes(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	userID, err := uuid.Parse(idStr)
+	if err != nil {
+		http.Error(w, "invalid user id", http.StatusBadRequest)
+		return
+	}
+
+	var body struct {
+		RequireNotes bool `json:"require_notes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+
+	tag, err := h.execScopedUserUpdate(r,
+		`UPDATE users SET require_notes=$1 WHERE id=$2 AND role='employee'`,
+		body.RequireNotes, userID)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return

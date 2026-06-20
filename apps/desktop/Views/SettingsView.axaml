@@ -35,6 +35,13 @@
                     <TextBlock Text="Idle Threshold (seconds)" Classes="label"/>
                     <NumericUpDown Value="{Binding IdleThresholdSecs}" Minimum="30" Maximum="1800"
                                    Increment="30" FormatString="0" Width="140" HorizontalAlignment="Left"/>
+                    <TextBlock Text="Skip captures when no input for this long." Classes="hint"/>
+                </StackPanel>
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Auto-pause after idle (minutes)" Classes="label"/>
+                    <NumericUpDown Value="{Binding IdleAutopauseMinutes}" Minimum="0" Maximum="60"
+                                   Increment="1" FormatString="0" Width="140" HorizontalAlignment="Left"/>
+                    <TextBlock Text="Stop tracking after this many idle minutes. 0 = disabled. Resumes automatically when active." Classes="hint" TextWrapping="Wrap" MaxWidth="360"/>
                 </StackPanel>
                 <Grid ColumnDefinitions="*,Auto">
                     <StackPanel Grid.Column="0" Spacing="2">
@@ -68,6 +75,27 @@
                     <Button Grid.Column="1" Content="Sign out" Command="{Binding LogoutCommand}"
                             VerticalAlignment="Center"/>
                 </Grid>
+
+                <!-- Change password -->
+                <TextBlock Text="Change Password" Classes="section" Margin="0,8,0,0"/>
+                <StackPanel Spacing="6">
+                    <TextBox PasswordChar="•" PlaceholderText="Current password"
+                             Text="{Binding CurrentPassword}"/>
+                    <TextBox PasswordChar="•" PlaceholderText="New password (min 8 chars)"
+                             Text="{Binding NewPassword}"/>
+                    <TextBox PasswordChar="•" PlaceholderText="Confirm new password"
+                             Text="{Binding ConfirmPassword}"/>
+                    <Grid ColumnDefinitions="Auto,*">
+                        <Button Grid.Column="0" Content="Change Password"
+                                Command="{Binding ChangePasswordCommand}"
+                                IsEnabled="{Binding !ChangingPassword}"/>
+                        <TextBlock Grid.Column="1" Text="{Binding ChangePasswordStatus}"
+                                   Foreground="#9ca3af" FontSize="12"
+                                   VerticalAlignment="Center" Margin="10,0,0,0"
+                                   TextWrapping="Wrap"
+                                   IsVisible="{Binding ChangePasswordStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                    </Grid>
+                </StackPanel>
             </StackPanel>
         </Border>
 

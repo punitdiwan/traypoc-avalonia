@@ -99,6 +99,7 @@ public sealed class SyncService
                 ScreenshotUrl = interval.SpacesUrl,
                 ThumbnailUrl = interval.SpacesUrl?.Replace(".png", "_thumb.jpg"),
                 WindowTitle = interval.WindowTitle,
+                Notes = string.IsNullOrWhiteSpace(interval.Notes) ? null : interval.Notes.Trim(),
             };
 
             var resp = await _api.PostTimeLogAsync(body, token, ct);
@@ -203,7 +204,7 @@ public sealed class SyncService
                     return; // refresh rejected (e.g. tracking disabled) → already logged out
                 policy = await _api.GetPolicyAsync(_auth.AccessToken, ct);
             }
-            _policy.Apply(policy.CanTrack, policy.AllowManualTime, ProjectsSignature(policy.Projects));
+            _policy.Apply(policy.CanTrack, policy.AllowManualTime, policy.RequireNotes, ProjectsSignature(policy.Projects));
         }
         catch (Exception e)
         {

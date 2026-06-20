@@ -25,11 +25,15 @@
             <Border DockPanel.Dock="Top" Background="#09090b"
                     BorderBrush="#1f2937" BorderThickness="0,0,0,1"
                     Padding="14,8">
-              <StackPanel Spacing="6">
+              <StackPanel Spacing="2">
                 <TextBlock FontSize="11" Foreground="#6b7280"
                            Text="{Binding SignedInAs, StringFormat='Signed in as {0}'}"
                            ToolTip.Tip="{Binding SignedInAs}"
                            TextTrimming="CharacterEllipsis"/>
+                <TextBlock FontSize="10" Foreground="#4b5563"
+                           Text="{Binding OrgName, StringFormat='🏢 {0}'}"
+                           TextTrimming="CharacterEllipsis"
+                           IsVisible="{Binding OrgName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                 <Grid ColumnDefinitions="Auto,*,Auto">
                     <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
                         <Button Content="Dashboard" Classes="tab"

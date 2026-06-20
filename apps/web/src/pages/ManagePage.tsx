@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import NavBar from "@/components/NavBar";
 import NameEditor from "@/components/NameEditor";
 import { Skeleton } from "@/components/Skeleton";
 import { overviewApi, projectsApi, usersApi } from "@/lib/api";
+import { useAuthStore } from "@/lib/auth";
 import { useToastStore } from "@/lib/toast";
 import { displayName, formatMoney, MAX_NAME_LEN, normalizeName, toCents } from "@/lib/format";
 import type { Project, ProjectMember, Task, User } from "@/types";
@@ -62,7 +63,6 @@ export default function ManagePage() {
       <main className="max-w-4xl mx-auto px-6 py-8">
         <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100 mb-6">Projects</h1>
 
-        {/* Create project */}
         <form onSubmit={handleCreate} className="flex flex-col sm:flex-row gap-3 mb-8">
           <input
             type="text"
@@ -90,7 +90,6 @@ export default function ManagePage() {
         </form>
         {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
 
-        {/* Project list */}
         {isLoading ? (
           <div className="space-y-3">
             <Skeleton className="h-32 w-full rounded-xl" />
@@ -111,6 +110,10 @@ export default function ManagePage() {
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Project card (NameEditor stays here — project names are fine to inline-edit)
+// ---------------------------------------------------------------------------
 
 function ProjectCard({ project, currency }: { project: Project; currency: string }) {
   const qc = useQueryClient();
@@ -158,17 +161,14 @@ function ProjectCard({ project, currency }: { project: Project; currency: string
           onSave={(cents) => updateMutation.mutate({ hourly_rate_cents: cents })}
         />
       </div>
-
       <MembersEditor projectId={project.id} />
     </div>
   );
 }
 
-/** Lists a project's assigned employees and lets the owner add/remove them. */
 function MembersEditor({ projectId }: { projectId: string }) {
   const qc = useQueryClient();
   const [adding, setAdding] = useState("");
-
   const { data: members = [] } = useQuery<ProjectMember[]>({
     queryKey: ["project-members", projectId],
     queryFn: () => projectsApi.listMembers(projectId),
@@ -177,7 +177,6 @@ function MembersEditor({ projectId }: { projectId: string }) {
     queryKey: ["employees"],
     queryFn: usersApi.list,
   });
-
   const addToast = useToastStore((s) => s.addToast);
 
   const addMutation = useMutation({
@@ -233,19 +232,14 @@ function MembersEditor({ projectId }: { projectId: string }) {
           value={adding}
           onChange={(e) => {
             const id = e.target.value;
-            if (id) {
-              addMutation.mutate(id);
-              setAdding("");
-            }
+            if (id) { addMutation.mutate(id); setAdding(""); }
           }}
           disabled={addMutation.isPending}
           className="text-xs border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-50"
         >
           <option value="">+ Assign employee…</option>
           {assignable.map((e) => (
-            <option key={e.id} value={e.id}>
-              {displayName(e)}
-            </option>
+            <option key={e.id} value={e.id}>{displayName(e)}</option>
           ))}
         </select>
       )}
@@ -253,17 +247,10 @@ function MembersEditor({ projectId }: { projectId: string }) {
   );
 }
 
-/** Inline "rate / hr" display that turns into an editable input on click. */
 function RateEditor({
-  valueCents,
-  currency,
-  pending,
-  onSave,
+  valueCents, currency, pending, onSave,
 }: {
-  valueCents: number;
-  currency: string;
-  pending: boolean;
-  onSave: (cents: number) => void;
+  valueCents: number; currency: string; pending: boolean; onSave: (cents: number) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -271,10 +258,7 @@ function RateEditor({
   if (!editing) {
     return (
       <button
-        onClick={() => {
-          setDraft(valueCents ? String(valueCents / 100) : "");
-          setEditing(true);
-        }}
+        onClick={() => { setDraft(valueCents ? String(valueCents / 100) : ""); setEditing(true); }}
         className="text-xs text-gray-500 dark:text-gray-400 hover:text-brand-600 dark:hover:text-brand-400 transition-colors"
         title="Edit billable rate"
       >
@@ -283,111 +267,64 @@ function RateEditor({
     );
   }
 
-  const commit = () => {
-    onSave(toCents(draft));
-    setEditing(false);
-  };
+  const commit = () => { onSave(toCents(draft)); setEditing(false); };
 
   return (
     <div className="flex items-center gap-1">
       <input
-        type="number"
-        min="0"
-        step="0.01"
-        autoFocus
-        value={draft}
+        type="number" min="0" step="0.01" autoFocus value={draft}
         onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") commit();
-          if (e.key === "Escape") setEditing(false);
-        }}
+        onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") setEditing(false); }}
         className="w-24 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
         placeholder="/ hr"
       />
-      <button
-        onClick={commit}
-        disabled={pending}
-        className="text-xs text-brand-600 dark:text-brand-400 hover:underline disabled:opacity-50"
-      >
-        Save
-      </button>
+      <button onClick={commit} disabled={pending} className="text-xs text-brand-600 dark:text-brand-400 hover:underline disabled:opacity-50">Save</button>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Employees section
+// ---------------------------------------------------------------------------
+
+function empInitials(emp: User): string {
+  if (emp.full_name?.trim()) {
+    return emp.full_name.trim().split(/\s+/).map((n) => n[0]).join("").slice(0, 2).toUpperCase();
+  }
+  return emp.email[0].toUpperCase();
 }
 
 function EmployeesSection({ currency }: { currency: string }) {
   const qc = useQueryClient();
   const addToast = useToastStore((s) => s.addToast);
+  const currentUser = useAuthStore((s) => s.user);
+  const isGod = currentUser?.role === "god";
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
   const [inviteError, setInviteError] = useState("");
+  const [editing, setEditing] = useState<User | null>(null);
 
   const { data: employees = [], isLoading } = useQuery<User[]>({
     queryKey: ["employees"],
     queryFn: usersApi.list,
   });
 
-  const toggleMutation = useMutation({
-    mutationFn: ({ id, canTrack }: { id: string; canTrack: boolean }) =>
-      usersApi.setCanTrack(id, canTrack),
-    onSuccess: (_, variables) => {
-      qc.invalidateQueries({ queryKey: ["employees"] });
-      addToast(variables.canTrack ? "Tracking enabled" : "Tracking disabled");
-    },
-    onError: (e) => addToast(e instanceof Error ? e.message : "Update failed", "error"),
-  });
-
-  const manualMutation = useMutation({
-    mutationFn: ({ id, allow }: { id: string; allow: boolean }) =>
-      usersApi.setAllowManualTime(id, allow),
-    onSuccess: (_, variables) => {
-      qc.invalidateQueries({ queryKey: ["employees"] });
-      addToast(variables.allow ? "Manual time enabled" : "Manual time disabled");
-    },
-    onError: (e) => addToast(e instanceof Error ? e.message : "Update failed", "error"),
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: ({ id, allow }: { id: string; allow: boolean }) =>
-      usersApi.setAllowDelete(id, allow),
-    onSuccess: (_, variables) => {
-      qc.invalidateQueries({ queryKey: ["employees"] });
-      addToast(variables.allow ? "Screenshot deletion enabled" : "Screenshot deletion disabled");
-    },
-    onError: (e) => addToast(e instanceof Error ? e.message : "Update failed", "error"),
-  });
-
-  const rateMutation = useMutation({
-    mutationFn: ({ id, cents }: { id: string; cents: number }) => usersApi.setRate(id, cents),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["employees"] });
-      addToast("Rate updated");
-    },
-    onError: (e) => addToast(e instanceof Error ? e.message : "Update failed", "error"),
-  });
-
-  const nameMutation = useMutation({
-    mutationFn: ({ id, name }: { id: string; name: string }) => usersApi.setName(id, name),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["employees"] });
-      addToast("Name updated");
-    },
-    onError: (e) => addToast(e instanceof Error ? e.message : "Update failed", "error"),
-  });
+  // Keep modal in sync if the underlying employee data updates while it's open.
+  useEffect(() => {
+    if (!editing) return;
+    const fresh = employees.find((e) => e.id === editing.id);
+    if (fresh) setEditing(fresh);
+  }, [employees]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const inviteMutation = useMutation({
     mutationFn: ({ name, email, password }: { name: string; email: string; password: string }) =>
       usersApi.invite(name, email, password),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: ["employees"] });
-      setFullName("");
-      setEmail("");
-      setPassword("");
-      setInviteError("");
-      const msg = `${variables.name} invited — tracking enabled.`;
-      setSuccessMsg(msg);
+      setFullName(""); setEmail(""); setPassword(""); setInviteError("");
+      setSuccessMsg(`${variables.name} invited — tracking enabled.`);
       addToast("Employee invited");
       setTimeout(() => setSuccessMsg(""), 4000);
     },
@@ -396,16 +333,6 @@ function EmployeesSection({ currency }: { currency: string }) {
       setInviteError(msg);
       addToast(msg, "error");
     },
-  });
-
-  const releaseMutation = useMutation({
-    mutationFn: (id: string) => usersApi.release(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["employees"] });
-      qc.invalidateQueries({ queryKey: ["projects"] });
-      addToast("Employee released");
-    },
-    onError: (e) => addToast(e instanceof Error ? e.message : "Release failed", "error"),
   });
 
   const handleInvite = (e: React.FormEvent) => {
@@ -426,36 +353,14 @@ function EmployeesSection({ currency }: { currency: string }) {
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 mb-6">
         <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Invite Employee</h3>
         <form onSubmit={handleInvite} className="flex flex-col sm:flex-row gap-3">
-          <input
-            type="text"
-            required
-            maxLength={MAX_NAME_LEN}
-            placeholder="Full name"
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            className={`flex-1 ${inputClass}`}
-          />
-          <input
-            type="email"
-            required
-            placeholder="employee@company.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className={`flex-1 ${inputClass}`}
-          />
-          <input
-            type="password"
-            required
-            placeholder="Temporary password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className={`flex-1 ${inputClass}`}
-          />
-          <button
-            type="submit"
-            disabled={inviteMutation.isPending}
-            className="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg px-5 py-2 transition-colors disabled:opacity-50 whitespace-nowrap"
-          >
+          <input type="text" required maxLength={MAX_NAME_LEN} placeholder="Full name" value={fullName}
+            onChange={(e) => setFullName(e.target.value)} className={`flex-1 ${inputClass}`} />
+          <input type="email" required placeholder="employee@company.com" value={email}
+            onChange={(e) => setEmail(e.target.value)} className={`flex-1 ${inputClass}`} />
+          <input type="password" required placeholder="Temporary password" value={password}
+            onChange={(e) => setPassword(e.target.value)} className={`flex-1 ${inputClass}`} />
+          <button type="submit" disabled={inviteMutation.isPending}
+            className="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg px-5 py-2 transition-colors disabled:opacity-50 whitespace-nowrap">
             {inviteMutation.isPending ? "Inviting…" : "Invite"}
           </button>
         </form>
@@ -466,126 +371,334 @@ function EmployeesSection({ currency }: { currency: string }) {
       {/* Employee list */}
       {isLoading ? (
         <div className="space-y-3">
-          <Skeleton className="h-24 w-full rounded-xl" />
-          <Skeleton className="h-24 w-full rounded-xl" />
-          <Skeleton className="h-24 w-full rounded-xl" />
+          <Skeleton className="h-16 w-full rounded-xl" />
+          <Skeleton className="h-16 w-full rounded-xl" />
+          <Skeleton className="h-16 w-full rounded-xl" />
         </div>
       ) : employees.length === 0 ? (
         <p className="text-gray-400 dark:text-gray-500 text-sm">No employees yet. Invite one above.</p>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {employees.map((emp) => (
             <div
               key={emp.id}
-              className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 flex items-center justify-between gap-4"
+              className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 px-5 py-4 flex items-center gap-4"
             >
-              <div className="min-w-0">
-                <NameEditor
-                  value={emp.full_name}
-                  fallback={emp.email}
-                  pending={nameMutation.isPending}
-                  onSave={(name) => nameMutation.mutate({ id: emp.id, name })}
-                  className="font-medium text-gray-900 dark:text-gray-100 text-sm truncate"
-                  inputClassName="w-48"
-                />
+              {/* Avatar */}
+              <div className="h-9 w-9 shrink-0 rounded-full bg-brand-100 dark:bg-brand-900/30 flex items-center justify-center text-brand-700 dark:text-brand-400 font-semibold text-sm select-none">
+                {empInitials(emp)}
+              </div>
+
+              {/* Identity */}
+              <div className="min-w-0 flex-1">
+                <p className="font-medium text-gray-900 dark:text-gray-100 text-sm truncate">
+                  {displayName(emp)}
+                </p>
                 <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{emp.email}</p>
+              </div>
+
+              {/* Status badges */}
+              <div className="hidden sm:flex items-center gap-2 shrink-0">
+                {isGod && emp.org_name && (
+                  <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 max-w-[120px] truncate" title={emp.org_name}>
+                    🏢 {emp.org_name}
+                  </span>
+                )}
+                <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${
+                  emp.can_track
+                    ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                    : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+                }`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${emp.can_track ? "bg-green-500" : "bg-gray-400"}`} />
+                  {emp.can_track ? "Tracking" : "Paused"}
+                </span>
+                {emp.require_notes && (
+                  <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                    Notes req.
+                  </span>
+                )}
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center gap-3 shrink-0">
                 <Link
                   to={`/diary/${emp.id}`}
-                  className="text-xs text-brand-600 dark:text-brand-400 hover:underline"
+                  className="text-xs text-brand-600 dark:text-brand-400 hover:underline whitespace-nowrap"
                 >
                   View diary
                 </Link>
-              </div>
-              <div className="flex items-center gap-4 shrink-0">
-                <div className="text-right">
-                  <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">Default rate</p>
-                  <RateEditor
-                    valueCents={emp.hourly_rate_cents}
-                    currency={currency}
-                    pending={rateMutation.isPending}
-                    onSave={(cents) => rateMutation.mutate({ id: emp.id, cents })}
-                  />
-                </div>
-                <div className="flex flex-col items-center gap-1">
-                  <span className={`text-xs font-medium ${emp.can_track ? "text-green-600 dark:text-green-400" : "text-gray-400 dark:text-gray-500"}`}>
-                    {emp.can_track ? "Tracking on" : "Tracking off"}
-                  </span>
-                  <button
-                    onClick={() => toggleMutation.mutate({ id: emp.id, canTrack: !emp.can_track })}
-                    disabled={toggleMutation.isPending}
-                    aria-label={emp.can_track ? "Disable tracking" : "Enable tracking"}
-                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-50 ${
-                      emp.can_track ? "bg-brand-600" : "bg-gray-200 dark:bg-gray-700"
-                    }`}
-                    title={emp.can_track ? "Disable tracking" : "Enable tracking"}
-                  >
-                    <span
-                      className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200 ${
-                        emp.can_track ? "translate-x-5" : "translate-x-0"
-                      }`}
-                    />
-                  </button>
-                </div>
-                <div className="flex flex-col items-center gap-1">
-                  <span className={`text-xs font-medium ${emp.allow_manual_time ? "text-green-600 dark:text-green-400" : "text-gray-400 dark:text-gray-500"}`}>
-                    {emp.allow_manual_time ? "Manual on" : "Manual off"}
-                  </span>
-                  <button
-                    onClick={() => manualMutation.mutate({ id: emp.id, allow: !emp.allow_manual_time })}
-                    disabled={manualMutation.isPending}
-                    aria-label={emp.allow_manual_time ? "Disallow manual time" : "Allow manual time"}
-                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-50 ${
-                      emp.allow_manual_time ? "bg-brand-600" : "bg-gray-200 dark:bg-gray-700"
-                    }`}
-                    title={emp.allow_manual_time ? "Disallow manual time (screenshot-less)" : "Allow manual time (screenshot-less)"}
-                  >
-                    <span
-                      className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200 ${
-                        emp.allow_manual_time ? "translate-x-5" : "translate-x-0"
-                      }`}
-                    />
-                  </button>
-                </div>
-                <div className="flex flex-col items-center gap-1">
-                  <span className={`text-xs font-medium ${emp.allow_delete ? "text-green-600 dark:text-green-400" : "text-gray-400 dark:text-gray-500"}`}>
-                    {emp.allow_delete ? "Delete on" : "Delete off"}
-                  </span>
-                  <button
-                    onClick={() => deleteMutation.mutate({ id: emp.id, allow: !emp.allow_delete })}
-                    disabled={deleteMutation.isPending}
-                    aria-label={emp.allow_delete ? "Disallow screenshot deletion" : "Allow screenshot deletion"}
-                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-50 ${
-                      emp.allow_delete ? "bg-brand-600" : "bg-gray-200 dark:bg-gray-700"
-                    }`}
-                    title={emp.allow_delete ? "Disallow deleting screenshots from their diary" : "Allow deleting screenshots from their diary (also deletes the tracked time)"}
-                  >
-                    <span
-                      className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200 ${
-                        emp.allow_delete ? "translate-x-5" : "translate-x-0"
-                      }`}
-                    />
-                  </button>
-                </div>
                 <button
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        `Release ${displayName(emp)} from this organization? They'll lose access until re-invited (their tracked history is kept).`
-                      )
-                    )
-                      releaseMutation.mutate(emp.id);
-                  }}
-                  disabled={releaseMutation.isPending}
-                  className="text-xs font-medium text-red-600 hover:text-red-700 dark:text-red-400 transition-colors disabled:opacity-50"
-                  title="Remove this employee from your organization"
+                  onClick={() => setEditing(emp)}
+                  title="Edit employee details"
+                  className="h-8 w-8 flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:text-brand-600 hover:border-brand-300 dark:hover:text-brand-400 dark:hover:border-brand-700 transition-colors"
                 >
-                  Release
+                  {/* Pencil icon */}
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+                    <path d="M13.488 2.513a1.75 1.75 0 0 0-2.475 0L6.75 6.774a2.75 2.75 0 0 0-.714 1.268L5.5 10.25a.75.75 0 0 0 .914.914l2.208-.536a2.75 2.75 0 0 0 1.268-.714l4.261-4.263a1.75 1.75 0 0 0 0-2.475l-.663-.663ZM3.75 12.5a.75.75 0 0 0 0 1.5h8.5a.75.75 0 0 0 0-1.5h-8.5Z" />
+                  </svg>
                 </button>
               </div>
             </div>
           ))}
         </div>
       )}
+
+      {/* Edit modal */}
+      {editing && (
+        <EditEmployeeModal
+          emp={editing}
+          currency={currency}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Edit Employee modal
+// ---------------------------------------------------------------------------
+
+function Toggle({
+  label, description, checked, onChange, color = "brand",
+}: {
+  label: string; description?: string; checked: boolean; onChange: (v: boolean) => void; color?: "brand" | "amber";
+}) {
+  const track = checked
+    ? color === "amber" ? "bg-amber-500" : "bg-brand-600"
+    : "bg-gray-200 dark:bg-gray-700";
+  return (
+    <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-100 dark:border-gray-800 last:border-0">
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{label}</p>
+        {description && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{description}</p>}
+      </div>
+      <button
+        type="button"
+        onClick={() => onChange(!checked)}
+        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900 ${track}`}
+      >
+        <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200 ${checked ? "translate-x-5" : "translate-x-0"}`} />
+      </button>
+    </div>
+  );
+}
+
+function EditEmployeeModal({ emp, currency, onClose }: { emp: User; currency: string; onClose: () => void }) {
+  const qc = useQueryClient();
+  const addToast = useToastStore((s) => s.addToast);
+
+  // Local draft state for fields that need a "Save" action.
+  const [name, setName] = useState(emp.full_name ?? "");
+  const [rateDraft, setRateDraft] = useState(emp.hourly_rate_cents ? String(emp.hourly_rate_cents / 100) : "");
+  const [saving, setSaving] = useState(false);
+
+  // Close on Escape.
+  const backdropRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => { window.removeEventListener("keydown", onKey); document.body.style.overflow = ""; };
+  }, [onClose]);
+
+  // Individual toggle mutations — fire immediately.
+  const toggleMutation = useMutation({
+    mutationFn: (v: boolean) => usersApi.setCanTrack(emp.id, v),
+    onSuccess: (_, v) => { qc.invalidateQueries({ queryKey: ["employees"] }); addToast(v ? "Tracking enabled" : "Tracking disabled"); },
+    onError: (e) => addToast(e instanceof Error ? e.message : "Update failed", "error"),
+  });
+  const manualMutation = useMutation({
+    mutationFn: (v: boolean) => usersApi.setAllowManualTime(emp.id, v),
+    onSuccess: (_, v) => { qc.invalidateQueries({ queryKey: ["employees"] }); addToast(v ? "Manual time enabled" : "Manual time disabled"); },
+    onError: (e) => addToast(e instanceof Error ? e.message : "Update failed", "error"),
+  });
+  const deleteMutation = useMutation({
+    mutationFn: (v: boolean) => usersApi.setAllowDelete(emp.id, v),
+    onSuccess: (_, v) => { qc.invalidateQueries({ queryKey: ["employees"] }); addToast(v ? "Screenshot deletion enabled" : "Screenshot deletion disabled"); },
+    onError: (e) => addToast(e instanceof Error ? e.message : "Update failed", "error"),
+  });
+  const requireNotesMutation = useMutation({
+    mutationFn: (v: boolean) => usersApi.setRequireNotes(emp.id, v),
+    onSuccess: (_, v) => { qc.invalidateQueries({ queryKey: ["employees"] }); addToast(v ? "Working notes required" : "Working notes optional"); },
+    onError: (e) => addToast(e instanceof Error ? e.message : "Update failed", "error"),
+  });
+  const releaseMutation = useMutation({
+    mutationFn: () => usersApi.release(emp.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["employees"] });
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      addToast("Employee released");
+      onClose();
+    },
+    onError: (e) => addToast(e instanceof Error ? e.message : "Release failed", "error"),
+  });
+
+  const handleSave = async () => {
+    const normalized = normalizeName(name);
+    if (!normalized) { addToast("Name cannot be blank", "error"); return; }
+    const cents = toCents(rateDraft);
+    setSaving(true);
+    try {
+      const tasks: Promise<unknown>[] = [];
+      if (normalized !== emp.full_name) tasks.push(usersApi.setName(emp.id, normalized));
+      if (cents !== emp.hourly_rate_cents) tasks.push(usersApi.setRate(emp.id, cents));
+      await Promise.all(tasks);
+      qc.invalidateQueries({ queryKey: ["employees"] });
+      if (tasks.length > 0) addToast("Employee updated");
+      onClose();
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : "Update failed", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      ref={backdropRef}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+      onClick={(e) => { if (e.target === backdropRef.current) onClose(); }}
+    >
+      <div className="w-full max-w-md bg-white dark:bg-gray-900 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-full bg-brand-100 dark:bg-brand-900/30 flex items-center justify-center text-brand-700 dark:text-brand-400 font-semibold text-sm">
+              {emp.full_name?.trim()
+                ? emp.full_name.trim().split(/\s+/).map((n) => n[0]).join("").slice(0, 2).toUpperCase()
+                : emp.email[0].toUpperCase()}
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">Edit Employee</h2>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{emp.email}</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="h-8 w-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {/* Profile fields */}
+          <div className="px-6 py-5 space-y-4 border-b border-gray-100 dark:border-gray-800">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Profile</p>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Full name</label>
+              <input
+                type="text"
+                value={name}
+                maxLength={MAX_NAME_LEN}
+                onChange={(e) => setName(e.target.value)}
+                className={inputClass + " w-full"}
+                placeholder="Full name"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
+              <p className="text-sm text-gray-500 dark:text-gray-400 py-2">{emp.email}</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Organization</label>
+              {emp.org_name ? (
+                <p className="text-sm text-gray-700 dark:text-gray-300 py-2 flex items-center gap-1.5">
+                  <span>🏢</span>
+                  <span>{emp.org_name}</span>
+                </p>
+              ) : (
+                <p className="text-sm text-gray-400 dark:text-gray-500 py-2 italic">
+                  Not assigned to any organization
+                </p>
+              )}
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Default billable rate ({currency}/hr)
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={rateDraft}
+                onChange={(e) => setRateDraft(e.target.value)}
+                className={inputClass + " w-full"}
+                placeholder="0.00"
+              />
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                Overridden by the project rate when set.
+              </p>
+            </div>
+          </div>
+
+          {/* Permissions */}
+          <div className="px-6 py-5 border-b border-gray-100 dark:border-gray-800">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">Permissions</p>
+            <Toggle
+              label="Allow tracking"
+              description="Employee can capture screenshots and log time."
+              checked={emp.can_track}
+              onChange={(v) => toggleMutation.mutate(v)}
+            />
+            <Toggle
+              label="Allow manual time"
+              description="Employee can log time without a screenshot."
+              checked={emp.allow_manual_time}
+              onChange={(v) => manualMutation.mutate(v)}
+            />
+            <Toggle
+              label="Allow deleting logs"
+              description="Employee can delete their own screenshots and tracked time."
+              checked={emp.allow_delete}
+              onChange={(v) => deleteMutation.mutate(v)}
+            />
+            <Toggle
+              label="Require working notes"
+              description="Employee must enter notes on every captured interval."
+              checked={emp.require_notes}
+              onChange={(v) => requireNotesMutation.mutate(v)}
+              color="amber"
+            />
+          </div>
+
+          {/* Danger zone */}
+          <div className="px-6 py-5">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-red-400 mb-3">Danger zone</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+              Releasing an employee removes them from this organization. Their tracked history is preserved. They lose access immediately until re-invited.
+            </p>
+            <button
+              onClick={() => {
+                if (window.confirm(`Release ${displayName(emp)} from this organization?`))
+                  releaseMutation.mutate();
+              }}
+              disabled={releaseMutation.isPending}
+              className="w-full border border-red-300 dark:border-red-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 text-sm font-medium rounded-lg px-4 py-2 transition-colors disabled:opacity-50"
+            >
+              {releaseMutation.isPending ? "Releasing…" : "Release from organization"}
+            </button>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="px-5 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save changes"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -30,6 +30,7 @@ public sealed class AuthService
     public string UserEmail => _auth.UserEmail;
     public string UserName => _auth.UserName;
     public string UserRole => _auth.UserRole;
+    public string OrgName => _auth.OrgName;
 
     /// <summary>Load any persisted session from disk.</summary>
     public void Initialize() => _auth = ConfigStore.LoadAuth();
@@ -87,6 +88,7 @@ public sealed class AuthService
             UserEmail = result.User.Email,
             UserName = result.User.FullName,
             UserRole = result.User.Role,
+            OrgName = result.User.OrgName,
         };
         ConfigStore.SaveAuth(_auth);
         // Keep user_id in AppConfig so the tracker can build upload paths.

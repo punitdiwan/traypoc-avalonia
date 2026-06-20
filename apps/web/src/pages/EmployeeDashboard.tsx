@@ -28,13 +28,13 @@ export default function EmployeeDashboard() {
   const date = today();
 
   const { data, isLoading } = useQuery({
-    queryKey: ["diary", user?.id, date],
-    queryFn: () => diaryApi.get(user!.id, date),
+    queryKey: ["diary", user?.id, date, date],
+    queryFn: () => diaryApi.get(user!.id, date, date),
     enabled: !!user,
   });
 
   const { totalSeconds, avgActivity, intervals, recent } = useMemo(() => {
-    const hours = data?.hours ?? [];
+    const hours = data?.days[0]?.hours ?? [];
     const slots = hours.flatMap((h) => h.slots);
     const total = hours.reduce((a, h) => a + h.total_seconds, 0);
     const avg =

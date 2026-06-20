@@ -16,6 +16,9 @@ public sealed class TimeInterval
     /// <summary>True for a manual-mode interval: no screenshot was captured, so it
     /// syncs without waiting on a Spaces upload and renders a "Manual" placeholder.</summary>
     public bool Manual { get; set; }
+    /// <summary>Free-text notes the employee entered for this interval (what they
+    /// were working on). Sent to the API and shown in the Work Diary lightbox.</summary>
+    public string? Notes { get; set; }
 }
 
 /// <summary>Port of the Rust <c>TrackerStatus</c>.</summary>
@@ -30,4 +33,7 @@ public sealed class TrackerStatus
     /// <summary>True while tracking is running in manual mode (no screenshots) —
     /// drives the "Manual Tracking" status indicator.</summary>
     public bool Manual { get; set; }
+    /// <summary>True when tracking was automatically stopped because the user exceeded
+    /// the idle auto-pause threshold. Cleared when tracking resumes.</summary>
+    public bool PausedByIdle { get; set; }
 }

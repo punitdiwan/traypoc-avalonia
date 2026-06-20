@@ -39,6 +39,10 @@ public partial class MainWindowViewModel : ViewModelBase
     /// blank names) — shown in the top bar.</summary>
     [ObservableProperty] private string _signedInAs = "";
 
+    /// <summary>The org the user belongs to, shown below the name in the top bar.
+    /// Empty for god/unattached users.</summary>
+    [ObservableProperty] private string _orgName = "";
+
     public string TrackingButtonText => IsTracking ? "Stop" : "Start";
 
     public MainWindowViewModel(AppServices services)
@@ -68,6 +72,8 @@ public partial class MainWindowViewModel : ViewModelBase
             });
         services.Tracker.SelectedProjectChanged += () =>
             Dispatcher.UIThread.Post(UpdateCanToggleTracking);
+        services.Tracker.NotesChanged += () =>
+            Dispatcher.UIThread.Post(UpdateCanToggleTracking);
         // Background policy poll → react on the UI thread (gate Start, show banner).
         services.Policy.Changed += () => Dispatcher.UIThread.Post(SyncPolicy);
 
@@ -88,11 +94,14 @@ public partial class MainWindowViewModel : ViewModelBase
         UpdateCanToggleTracking();
     }
 
-    /// <summary>Set the top-bar identity label from the current auth state.</summary>
-    private void UpdateSignedInAs() =>
+    /// <summary>Set the top-bar identity label and org name from the current auth state.</summary>
+    private void UpdateSignedInAs()
+    {
         SignedInAs = string.IsNullOrWhiteSpace(_services.Auth.UserName)
             ? _services.Auth.UserEmail
             : _services.Auth.UserName;
+        OrgName = _services.Auth.OrgName;
+    }
 
     private void SyncAuth()
     {

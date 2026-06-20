@@ -118,6 +118,14 @@ ALTER TABLE users     ADD COLUMN IF NOT EXISTS org_id UUID REFERENCES organizati
 ALTER TABLE projects  ADD COLUMN IF NOT EXISTS org_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
 ALTER TABLE time_logs ADD COLUMN IF NOT EXISTS org_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
 
+-- Employer can require employees to always enter working notes on each captured
+-- interval. Off by default; enforced server-side on POST /time-logs.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS require_notes BOOLEAN NOT NULL DEFAULT false;
+
+-- Free-text notes the employee attaches to each captured interval (what they were
+-- working on). Visible in the Work Diary lightbox for both the employee and employer.
+ALTER TABLE time_logs ADD COLUMN IF NOT EXISTS notes TEXT;
+
 CREATE INDEX IF NOT EXISTS users_org     ON users (org_id);
 CREATE INDEX IF NOT EXISTS projects_org  ON projects (org_id);
 CREATE INDEX IF NOT EXISTS time_logs_org ON time_logs (org_id, started_at DESC);

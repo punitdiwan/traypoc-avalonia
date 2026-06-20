@@ -146,6 +146,26 @@ public sealed class ApiClient
             ?? new PolicyResult();
     }
 
+    /// <summary>Change the authenticated user's own password. Throws <see cref="ApiException"/>
+    /// if the current password is wrong (401) or validation fails (400).</summary>
+    public async Task ChangePasswordAsync(string token, string currentPassword, string newPassword, CancellationToken ct = default)
+    {
+        string json = JsonSerializer.Serialize(
+            new { current_password = currentPassword, new_password = newPassword }, AppJson.Options);
+        var req = new HttpRequestMessage(HttpMethod.Patch, $"{ApiBase}/auth/password")
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json"),
+        };
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var resp = await Http.SendAsync(req, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            string text = (await resp.Content.ReadAsStringAsync(ct)).Trim();
+            throw new ApiException((int)resp.StatusCode,
+                string.IsNullOrEmpty(text) ? "failed to change password" : text);
+        }
+    }
+
     /// <summary>Update the authenticated user's own full name via PATCH /auth/me.</summary>
     public async Task UpdateMeAsync(string token, string fullName, CancellationToken ct = default)
     {

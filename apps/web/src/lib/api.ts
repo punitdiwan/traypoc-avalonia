@@ -106,6 +106,12 @@ export const authApi = {
       method: "PATCH",
       body: JSON.stringify({ full_name: fullName }),
     }),
+
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<void>("/auth/password", {
+      method: "PATCH",
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    }),
 };
 
 // Projects
@@ -158,6 +164,12 @@ export const usersApi = {
     request<void>(`/users/${userId}/allow-delete`, {
       method: "PATCH",
       body: JSON.stringify({ allow_delete: allow }),
+    }),
+  // Require the employee to enter working notes on every captured interval.
+  setRequireNotes: (userId: string, require: boolean) =>
+    request<void>(`/users/${userId}/require-notes`, {
+      method: "PATCH",
+      body: JSON.stringify({ require_notes: require }),
     }),
   setRate: (userId: string, hourlyRateCents: number) =>
     request<void>(`/users/${userId}/rate`, {
@@ -212,8 +224,8 @@ export const timeLogsApi = {
 
 // Diary
 export const diaryApi = {
-  get: (userId: string, date?: string) =>
-    request<DiaryResponse>(`/diary/${userId}${date ? `?date=${date}` : ""}`),
+  get: (userId: string, from: string, to: string) =>
+    request<DiaryResponse>(`/diary/${userId}?from=${from}&to=${to}`),
 };
 
 // Team overview & billable reports (employer-only)

@@ -32,6 +32,33 @@
                        FontSize="12" Foreground="#facc15" TextWrapping="Wrap"/>
         </Border>
 
+        <!-- Working notes — visible always so every captured interval can carry notes -->
+        <Border Classes="card">
+            <StackPanel Spacing="8">
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Grid.Column="0" Spacing="1" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Text="Working Notes" FontSize="13" Foreground="#e5e7eb"/>
+                            <!-- Asterisk when employer requires non-blank notes -->
+                            <TextBlock Text="*" FontSize="13" Foreground="#f87171"
+                                       IsVisible="{Binding RequireNotes}"
+                                       ToolTip.Tip="Working notes are required by your organization"/>
+                        </StackPanel>
+                        <TextBlock FontSize="11" Foreground="#9ca3af" TextWrapping="Wrap"
+                                   Text="What are you working on? Carried forward automatically."
+                                   IsVisible="{Binding !RequireNotes}"/>
+                        <TextBlock FontSize="11" Foreground="#f87171" TextWrapping="Wrap"
+                                   Text="Required — enter notes before starting."
+                                   IsVisible="{Binding RequireNotes}"/>
+                    </StackPanel>
+                </Grid>
+                <TextBox Text="{Binding WorkingNotes}"
+                         PlaceholderText="e.g. Fixing login bug, writing report, team meeting…"
+                         AcceptsReturn="False"
+                         MaxLength="500"/>
+            </StackPanel>
+        </Border>
+
         <!-- Manual time — only when the employer allows screenshot-less time -->
         <Border Classes="card" IsVisible="{Binding AllowManualTime}">
             <StackPanel Spacing="10">
@@ -83,9 +110,12 @@
 
         <!-- Recent screenshots -->
         <StackPanel Spacing="8">
-            <TextBlock Text="Recent Screenshots" FontSize="13" Foreground="#9ca3af"/>
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <TextBlock Text="Today's Screenshots" FontSize="13" Foreground="#9ca3af"/>
+                <TextBlock Text="(past days → web diary)" FontSize="11" Foreground="#4b5563"/>
+            </StackPanel>
 
-            <TextBlock Text="No captures yet. Tracker fires every ~10 minutes."
+            <TextBlock Text="No captures today yet. Tracker fires every ~10 minutes."
                        Foreground="#6b7280" FontSize="13" Margin="0,12"
                        HorizontalAlignment="Center"
                        IsVisible="{Binding !HasIntervals}"/>

@@ -41,14 +41,16 @@ type tokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
 	User         struct {
-		ID       string      `json:"id"`
-		Email    string      `json:"email"`
-		FullName string      `json:"full_name"`
-		Role        models.Role `json:"role"`
-		CanTrack    bool        `json:"can_track"`
-		AllowDelete bool        `json:"allow_delete"`
-		OrgID       string      `json:"org_id"`
-		OrgName     string      `json:"org_name"`
+		ID             string      `json:"id"`
+		Email          string      `json:"email"`
+		FullName       string      `json:"full_name"`
+		Role           models.Role `json:"role"`
+		CanTrack       bool        `json:"can_track"`
+		AllowManualTime bool       `json:"allow_manual_time"`
+		AllowDelete    bool        `json:"allow_delete"`
+		RequireNotes   bool        `json:"require_notes"`
+		OrgID          string      `json:"org_id"`
+		OrgName        string      `json:"org_name"`
 	} `json:"user"`
 }
 
@@ -145,13 +147,13 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var user models.User
 	var orgName string
 	err := h.db.QueryRow(r.Context(),
-		`SELECT u.id, u.email, u.full_name, u.password_hash, u.role, u.can_track, u.allow_delete, u.org_id,
+		`SELECT u.id, u.email, u.full_name, u.password_hash, u.role, u.can_track, u.allow_manual_time, u.allow_delete, u.require_notes, u.org_id,
 		        COALESCE(o.name, ''), u.created_at
 		 FROM users u LEFT JOIN organizations o ON o.id = u.org_id
 		 WHERE u.email=$1`,
 		req.Email,
 	).Scan(&user.ID, &user.Email, &user.FullName, &user.PasswordHash, &user.Role, &user.CanTrack,
-		&user.AllowDelete, &user.OrgID, &orgName, &user.CreatedAt)
+		&user.AllowManualTime, &user.AllowDelete, &user.RequireNotes, &user.OrgID, &orgName, &user.CreatedAt)
 	if err != nil || !auth.CheckPassword(user.PasswordHash, req.Password) {
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
@@ -195,10 +197,10 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	var user models.User
 	var orgName string
 	err = h.db.QueryRow(r.Context(),
-		`SELECT u.id, u.email, u.full_name, u.role, u.can_track, u.org_id, COALESCE(o.name, '')
+		`SELECT u.id, u.email, u.full_name, u.role, u.can_track, u.allow_manual_time, u.allow_delete, u.require_notes, u.org_id, COALESCE(o.name, '')
 		 FROM users u LEFT JOIN organizations o ON o.id = u.org_id
 		 WHERE u.id=$1`, userID,
-	).Scan(&user.ID, &user.Email, &user.FullName, &user.Role, &user.CanTrack, &user.OrgID, &orgName)
+	).Scan(&user.ID, &user.Email, &user.FullName, &user.Role, &user.CanTrack, &user.AllowManualTime, &user.AllowDelete, &user.RequireNotes, &user.OrgID, &orgName)
 	if err != nil {
 		http.Error(w, "user not found", http.StatusUnauthorized)
 		return
@@ -264,7 +266,9 @@ func (h *AuthHandler) issueTokens(w http.ResponseWriter, user models.User) {
 	resp.User.FullName = user.FullName
 	resp.User.Role = user.Role
 	resp.User.CanTrack = user.CanTrack
+	resp.User.AllowManualTime = user.AllowManualTime
 	resp.User.AllowDelete = user.AllowDelete
+	resp.User.RequireNotes = user.RequireNotes
 	resp.User.OrgID = orgID
 	resp.User.OrgName = user.OrgName
 
@@ -284,11 +288,11 @@ func Me(db *pgxpool.Pool) http.HandlerFunc {
 		var user models.User
 		var orgName string
 		err = db.QueryRow(r.Context(),
-			`SELECT u.id, u.email, u.full_name, u.role, u.can_track, u.allow_delete, u.hourly_rate_cents,
+			`SELECT u.id, u.email, u.full_name, u.role, u.can_track, u.allow_manual_time, u.allow_delete, u.require_notes, u.hourly_rate_cents,
 			        u.org_id, COALESCE(o.name, ''), u.created_at
 			 FROM users u LEFT JOIN organizations o ON o.id = u.org_id
 			 WHERE u.id=$1`, userID,
-		).Scan(&user.ID, &user.Email, &user.FullName, &user.Role, &user.CanTrack, &user.AllowDelete, &user.HourlyRateCents,
+		).Scan(&user.ID, &user.Email, &user.FullName, &user.Role, &user.CanTrack, &user.AllowManualTime, &user.AllowDelete, &user.RequireNotes, &user.HourlyRateCents,
 			&user.OrgID, &orgName, &user.CreatedAt)
 		if err != nil {
 			http.Error(w, "not found", http.StatusNotFound)
@@ -322,6 +326,54 @@ func (h *AuthHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := h.db.Exec(r.Context(),
 		`UPDATE users SET full_name=$1 WHERE id=$2`, name, userID,
+	); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ChangePassword lets an authenticated user update their own password.
+// Requires the current password for verification; no privilege escalation possible.
+func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	userID, err := uuid.Parse(mw.UserID(r))
+	if err != nil {
+		http.Error(w, "bad user id", http.StatusBadRequest)
+		return
+	}
+	var body struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil ||
+		body.CurrentPassword == "" || body.NewPassword == "" {
+		http.Error(w, "current_password and new_password required", http.StatusBadRequest)
+		return
+	}
+	if len(body.NewPassword) < 8 {
+		http.Error(w, "new password must be at least 8 characters", http.StatusBadRequest)
+		return
+	}
+
+	var hash string
+	if err := h.db.QueryRow(r.Context(),
+		`SELECT password_hash FROM users WHERE id=$1`, userID,
+	).Scan(&hash); err != nil {
+		http.Error(w, "user not found", http.StatusNotFound)
+		return
+	}
+	if !auth.CheckPassword(hash, body.CurrentPassword) {
+		http.Error(w, "current password is incorrect", http.StatusUnauthorized)
+		return
+	}
+
+	newHash, err := auth.HashPassword(body.NewPassword)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if _, err := h.db.Exec(r.Context(),
+		`UPDATE users SET password_hash=$1 WHERE id=$2`, newHash, userID,
 	); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return

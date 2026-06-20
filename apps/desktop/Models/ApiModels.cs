@@ -17,6 +17,7 @@ public sealed class ApiUser
     public string FullName { get; set; } = "";
     public string Role { get; set; } = "";
     public bool CanTrack { get; set; }
+    public string OrgName { get; set; } = "";
 }
 
 /// <summary>Request body for <c>POST /time-logs</c> (one captured interval).</summary>
@@ -30,6 +31,7 @@ public sealed class TimeLogRequest
     public string? ScreenshotUrl { get; set; }
     public string? ThumbnailUrl { get; set; }
     public string? WindowTitle { get; set; }
+    public string? Notes { get; set; }
 }
 
 /// <summary>A project the employee is assigned to (from <c>GET /projects</c>).</summary>
@@ -48,6 +50,9 @@ public sealed class PolicyResult
 {
     public bool CanTrack { get; set; }
     public bool AllowManualTime { get; set; }
+    /// <summary>When true, the employee must provide non-empty working notes on
+    /// every interval. Enforced server-side; gated client-side for fast feedback.</summary>
+    public bool RequireNotes { get; set; }
     public List<Project> Projects { get; set; } = new();
 }
 

@@ -20,6 +20,10 @@ public sealed class AppConfig
     /// <summary>Seconds of no input before considered idle. Default 300 (5 min).</summary>
     public long IdleThresholdSecs { get; set; } = 300;
 
+    /// <summary>Minutes of continuous idle before tracking auto-pauses. Default 5.
+    /// Set to 0 to disable auto-pause entirely.</summary>
+    public long IdleAutopauseMinutes { get; set; } = 5;
+
     public AppConfig Clone() => (AppConfig)MemberwiseClone();
 }
 
@@ -32,6 +36,7 @@ public sealed class AuthConfig
     public string UserEmail { get; set; } = "";
     public string UserName { get; set; } = "";
     public string UserRole { get; set; } = "";
+    public string OrgName { get; set; } = "";
 
     public bool IsAuthenticated() =>
         !string.IsNullOrEmpty(AccessToken) && !string.IsNullOrEmpty(UserId);

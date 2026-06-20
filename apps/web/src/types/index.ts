@@ -8,6 +8,7 @@ export interface User {
   can_track: boolean;
   allow_manual_time: boolean;
   allow_delete: boolean;
+  require_notes: boolean;
   hourly_rate_cents: number;
   org_id: string | null;
   org_name?: string;
@@ -68,6 +69,7 @@ export interface DiarySlot {
   screenshot_url: string | null;
   thumbnail_url: string | null;
   window_title: string | null;
+  notes: string | null;
   project_id: string | null;
   task_id: string | null;
 }
@@ -79,10 +81,16 @@ export interface HourBucket {
   slots: DiarySlot[];
 }
 
-export interface DiaryResponse {
-  user_id: string;
+export interface DailyDiary {
   date: string;
   hours: HourBucket[];
+}
+
+export interface DiaryResponse {
+  user_id: string;
+  from: string;
+  to: string;
+  days: DailyDiary[];
 }
 
 export interface DailyPoint {

@@ -28,6 +28,9 @@ public sealed class TrackerService
     // True while the employer has paused tracking and we were running — so we know
     // to auto-resume when they re-enable it. Cleared by any explicit Stop().
     private volatile bool _pausedByPolicy;
+    // True when tracking was auto-stopped because idle time exceeded the threshold.
+    // An idle watcher task polls until the user becomes active and then resumes.
+    private volatile bool _pausedByIdle;
     private CancellationTokenSource? _cts;
     private readonly object _startLock = new();
 
@@ -43,8 +46,13 @@ public sealed class TrackerService
     /// <summary>Raised when manual mode is toggled (drives the Start gate + status).</summary>
     public event Action? ManualModeChanged;
 
+    /// <summary>Raised when working notes change (drives the Start gate when notes
+    /// are required).</summary>
+    public event Action? NotesChanged;
+
     private volatile string? _selectedProjectId;
     private volatile bool _manualMode;
+    private string _workingNotes = "";
 
     /// <summary>When true, tracking runs without screenshots: each interval logs time
     /// against the selected project with a "Manual entry" marker and no capture. Only
@@ -63,6 +71,20 @@ public sealed class TrackerService
         }
     }
 
+    /// <summary>Free-text notes the employee is currently entering. Auto-carried from
+    /// interval to interval — the value persists until the employee changes it or
+    /// clears the field. Passed to every captured interval so the employer can see
+    /// what was worked on in the diary lightbox.</summary>
+    public string WorkingNotes
+    {
+        get => _workingNotes;
+        set
+        {
+            _workingNotes = value ?? "";
+            NotesChanged?.Invoke();
+        }
+    }
+
     /// <summary>The project new intervals are tracked against. Tracking cannot start
     /// until this is set (the employee must pick a project first).</summary>
     public string? SelectedProjectId
@@ -77,9 +99,11 @@ public sealed class TrackerService
 
     /// <summary>True when a project is selected and the employer allows tracking, so
     /// tracking is allowed to start. Manual mode additionally requires the employer
-    /// to permit manual (screenshot-less) time.</summary>
+    /// to permit manual (screenshot-less) time. When the employer requires working
+    /// notes, the field must be non-blank.</summary>
     public bool CanStart => !string.IsNullOrEmpty(_selectedProjectId) && _policy.CanTrack
-        && (!_manualMode || _policy.AllowManualTime);
+        && (!_manualMode || _policy.AllowManualTime)
+        && (!_policy.RequireNotes || !string.IsNullOrWhiteSpace(_workingNotes));
 
     public TrackerService(Database db, ConfigState config, ActivityMonitor activity, SpacesUploader uploader, AuthService auth, PolicyState policy)
     {
@@ -143,10 +167,11 @@ public sealed class TrackerService
     }
 
     /// <summary>Explicit stop — user toggle, logout, or shutdown. Clears any
-    /// policy-pause resume intent so it won't auto-resume after a deliberate stop.</summary>
+    /// policy-pause and idle-pause resume intents so nothing auto-resumes.</summary>
     public void Stop()
     {
         _pausedByPolicy = false;
+        _pausedByIdle = false;
         StopInternal();
     }
 
@@ -174,6 +199,7 @@ public sealed class TrackerService
             IsIdle = _activity.IsIdle(cfg.IdleThresholdSecs),
             IdleSecs = _activity.IdleSecs(),
             Manual = _running && _manualMode,
+            PausedByIdle = _pausedByIdle,
         };
     }
 
@@ -193,6 +219,17 @@ public sealed class TrackerService
                 // work without screenshots); automatic mode skips capture while idle.
                 if (!_manualMode && _activity.IsIdle(idleThreshold))
                 {
+                    // Auto-pause: stop tracking entirely if idle exceeds the configured
+                    // threshold. An idle watcher will resume once the user is active again.
+                    long idleAutopauseSecs = cfg.IdleAutopauseMinutes * 60;
+                    if (idleAutopauseSecs > 0 && _activity.IdleSecs() >= idleAutopauseSecs)
+                    {
+                        Log.Info($"idle auto-pause triggered after {_activity.IdleSecs()}s idle");
+                        _pausedByIdle = true;
+                        StopInternal();
+                        _ = Task.Run(IdleWatcherAsync);
+                        return;
+                    }
                     UpdateTooltip(intervalSecs, isIdle: true);
                     await Task.Delay(TimeSpan.FromSeconds(IdlePollSecs), ct);
                     continue;
@@ -235,6 +272,23 @@ public sealed class TrackerService
         }
     }
 
+    /// <summary>Polls every 5 s after an idle auto-pause. When the user becomes
+    /// active again (idle &lt; 5 s), clears the pause flag and resumes tracking.</summary>
+    private async Task IdleWatcherAsync()
+    {
+        while (_pausedByIdle)
+        {
+            await Task.Delay(5000);
+            if (_activity.IdleSecs() < 5)
+            {
+                Log.Info("idle watcher: user active — resuming tracking");
+                _pausedByIdle = false;
+                Start(); // no-op if CanStart is false (e.g. policy changed)
+                break;
+            }
+        }
+    }
+
     private async Task CaptureAndUploadAsync(long intervalSecs)
     {
         var now = DateTimeOffset.UtcNow;
@@ -251,7 +305,7 @@ public sealed class TrackerService
 
         await Task.Run(() => ScreenshotService.Capture(png, thumb));
 
-        long intervalId = _db.InsertInterval(startTime, png, thumb, activityPct, windowTitle, _selectedProjectId);
+        long intervalId = _db.InsertInterval(startTime, png, thumb, activityPct, windowTitle, _selectedProjectId, notes: _workingNotes);
 
         // Keys are relative to the user's prefix; the API prepends the user id when
         // it mints the presigned URL, so no Spaces credentials live on the client.
@@ -291,7 +345,7 @@ public sealed class TrackerService
     {
         string startTime = DateTimeOffset.UtcNow.ToString(Database.TimeFormat);
         long intervalId = _db.InsertInterval(startTime, null, null, 0, "Manual entry",
-            _selectedProjectId, manual: true);
+            _selectedProjectId, manual: true, notes: _workingNotes);
         Log.Info($"logged manual interval {intervalId}");
     }
 

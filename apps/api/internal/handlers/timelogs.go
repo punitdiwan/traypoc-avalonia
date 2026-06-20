@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -38,6 +39,7 @@ type createTimeLogRequest struct {
 	ScreenshotURL   *string    `json:"screenshot_url"`
 	ThumbnailURL    *string    `json:"thumbnail_url"`
 	WindowTitle     *string    `json:"window_title"`
+	Notes           *string    `json:"notes"`
 }
 
 func (h *TimeLogHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -60,7 +62,7 @@ func (h *TimeLogHandler) List(w http.ResponseWriter, r *http.Request) {
 		rows, err = h.db.Query(r.Context(),
 			`SELECT id, user_id, project_id, task_id, started_at, ended_at,
 			        duration_seconds, activity_percent, screenshot_url, thumbnail_url,
-			        window_title, created_at
+			        window_title, notes, created_at
 			 FROM time_logs
 			 WHERE user_id=$1 AND started_at::date=$2
 			 ORDER BY started_at ASC`,
@@ -70,7 +72,7 @@ func (h *TimeLogHandler) List(w http.ResponseWriter, r *http.Request) {
 		rows, err = h.db.Query(r.Context(),
 			`SELECT id, user_id, project_id, task_id, started_at, ended_at,
 			        duration_seconds, activity_percent, screenshot_url, thumbnail_url,
-			        window_title, created_at
+			        window_title, notes, created_at
 			 FROM time_logs
 			 WHERE user_id=$1
 			 ORDER BY started_at DESC
@@ -108,11 +110,11 @@ func (h *TimeLogHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// poll reacts within ~30s; this rejects anything that slips through that gap
 	// or comes from a stale/hostile client). A screenshot-less entry is a manual
 	// time log and additionally requires allow_manual_time.
-	var canTrack, allowManual bool
+	var canTrack, allowManual, requireNotes bool
 	var canTrackSince time.Time
 	if err := h.db.QueryRow(r.Context(),
-		`SELECT can_track, can_track_since, allow_manual_time FROM users WHERE id=$1`, userID,
-	).Scan(&canTrack, &canTrackSince, &allowManual); err != nil {
+		`SELECT can_track, can_track_since, allow_manual_time, require_notes FROM users WHERE id=$1`, userID,
+	).Scan(&canTrack, &canTrackSince, &allowManual, &requireNotes); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -129,6 +131,10 @@ func (h *TimeLogHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.ScreenshotURL == nil && !allowManual {
 		http.Error(w, "manual time entry is not enabled for your account", http.StatusForbidden)
+		return
+	}
+	if requireNotes && (req.Notes == nil || strings.TrimSpace(*req.Notes) == "") {
+		http.Error(w, "working notes are required for your account", http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -152,16 +158,24 @@ func (h *TimeLogHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var notes *string
+	if req.Notes != nil {
+		trimmed := strings.TrimSpace(*req.Notes)
+		if trimmed != "" {
+			notes = &trimmed
+		}
+	}
+
 	var id uuid.UUID
 	err := h.db.QueryRow(r.Context(),
 		`INSERT INTO time_logs
 		 (user_id, org_id, project_id, task_id, started_at, ended_at, duration_seconds,
-		  activity_percent, screenshot_url, thumbnail_url, window_title)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		  activity_percent, screenshot_url, thumbnail_url, window_title, notes)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 		 RETURNING id`,
 		userID, orgID, req.ProjectID, req.TaskID, req.StartedAt, req.EndedAt,
 		req.DurationSeconds, req.ActivityPercent, req.ScreenshotURL,
-		req.ThumbnailURL, req.WindowTitle,
+		req.ThumbnailURL, req.WindowTitle, notes,
 	).Scan(&id)
 	if err != nil {
 		http.Error(w, "insert error", http.StatusInternalServerError)
@@ -231,7 +245,7 @@ func (h *TimeLogHandler) Get(w http.ResponseWriter, r *http.Request) {
 	row := h.db.QueryRow(r.Context(),
 		`SELECT id, user_id, project_id, task_id, started_at, ended_at,
 		        duration_seconds, activity_percent, screenshot_url, thumbnail_url,
-		        window_title, created_at
+		        window_title, notes, created_at
 		 FROM time_logs WHERE id=$1 AND user_id=$2`,
 		logID, userID,
 	)
@@ -345,16 +359,16 @@ type rowsScanner interface {
 
 func scanTimeLog(row scanner) (map[string]any, error) {
 	var (
-		id, userID                   uuid.UUID
-		projectID, taskID            *uuid.UUID
-		startedAt, endedAt, created  time.Time
-		durSec, actPct               int
-		screenshotURL, thumbnailURL  *string
-		windowTitle                  *string
+		id, userID                  uuid.UUID
+		projectID, taskID           *uuid.UUID
+		startedAt, endedAt, created time.Time
+		durSec, actPct              int
+		screenshotURL, thumbnailURL *string
+		windowTitle, notes          *string
 	)
 	err := row.Scan(
 		&id, &userID, &projectID, &taskID, &startedAt, &endedAt,
-		&durSec, &actPct, &screenshotURL, &thumbnailURL, &windowTitle, &created,
+		&durSec, &actPct, &screenshotURL, &thumbnailURL, &windowTitle, &notes, &created,
 	)
 	if err != nil {
 		return nil, err
@@ -371,6 +385,7 @@ func scanTimeLog(row scanner) (map[string]any, error) {
 		"screenshot_url":   screenshotURL,
 		"thumbnail_url":    thumbnailURL,
 		"window_title":     windowTitle,
+		"notes":            notes,
 		"created_at":       created,
 	}, nil
 }

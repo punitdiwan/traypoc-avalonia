@@ -33,7 +33,7 @@ export default function LoginPage() {
           <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-white">⏱</span>
           <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Sign in</h1>
         </div>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">Employer dashboard</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">Sign in to your workspace</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>

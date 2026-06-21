@@ -23,6 +23,33 @@ export function formatHours(seconds: number): string {
   return h >= 10 ? `${Math.round(h)}h` : `${h.toFixed(1)}h`;
 }
 
+/** Duration as an h/m breakdown (e.g. 3h, 3h 20m, 45m). */
+export function formatDuration(seconds: number): string {
+  const totalMin = Math.round(seconds / 60);
+  if (totalMin < 60) return `${totalMin}m`;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+/** Time-of-day from an ISO timestamp (e.g. "9:05 AM"), in the local timezone. */
+export function formatClock(iso: string): string {
+  return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+/** Local-timezone YYYY-MM-DD for a Date (NOT UTC — avoids the toISOString off-by-one). */
+export function localDateISO(d = new Date()): string {
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const da = String(d.getDate()).padStart(2, "0");
+  return `${y}-${mo}-${da}`;
+}
+
+/** Today's date as a local YYYY-MM-DD string. */
+export function todayISO(): string {
+  return localDateISO();
+}
+
 /** Convert dollars/rupees (major units) entered in a form to integer cents. */
 export function toCents(major: string | number): number {
   const n = typeof major === "string" ? parseFloat(major) : major;

@@ -99,6 +99,7 @@ public sealed class SyncService
                 ScreenshotUrl = interval.SpacesUrl,
                 ThumbnailUrl = interval.SpacesUrl?.Replace(".png", "_thumb.jpg"),
                 WindowTitle = interval.WindowTitle,
+                AppName = interval.AppName,
                 Notes = string.IsNullOrWhiteSpace(interval.Notes) ? null : interval.Notes.Trim(),
             };
 

@@ -93,6 +93,9 @@ func main() {
 	uploadH := handlers.NewUploadHandler(spacesClient)
 	adminH := handlers.NewAdminHandler(pool)
 	policyH := handlers.NewPolicyHandler(pool)
+	appCatH := handlers.NewAppCategoryHandler(pool)
+	timesheetH := handlers.NewTimesheetHandler(pool)
+	previewH := handlers.NewTimesheetPreviewHandler(pool)
 
 	r := chi.NewRouter()
 	r.Use(chiMiddleware.Logger)
@@ -141,6 +144,7 @@ func main() {
 			r.Post("/", timeH.Create)
 			r.Delete("/", timeH.DeleteAll)
 			r.Get("/{id}", timeH.Get)
+			r.Patch("/{id}", timeH.Update)
 			r.Delete("/{id}", timeH.Delete)
 		})
 
@@ -163,9 +167,13 @@ func main() {
 		// their own (authorization is enforced inside the handler).
 		r.Get("/diary/{userId}", diaryH.Get)
 
-		// Team overview & billable reports — employer only
+		// Team overview — employer only
 		r.With(mw.RequireRole(models.RoleEmployer)).Get("/overview", overviewH.Get)
-		r.With(mw.RequireRole(models.RoleEmployer)).Get("/invoice", invoiceH.Get)
+
+		// Billable invoice (JSON + downloadable PDF). Access is enforced inside the
+		// handler: employer/god for any org employee, an employee for their own.
+		r.Get("/invoice", invoiceH.Get)
+		r.Get("/invoice.pdf", invoiceH.GetPDF)
 
 		// Users — employer manages employees in their own org
 		r.With(mw.RequireRole(models.RoleEmployer)).Get("/users", userH.List)
@@ -177,6 +185,20 @@ func main() {
 		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/rate", userH.SetRate)
 		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/name", userH.SetName)
 		r.With(mw.RequireRole(models.RoleEmployer)).Delete("/users/{id}/org", userH.Release)
+
+		// App categories — employer tags app names as productive/neutral/unproductive
+		r.With(mw.RequireRole(models.RoleEmployer)).Get("/app-categories", appCatH.List)
+		r.With(mw.RequireRole(models.RoleEmployer)).Put("/app-categories/{appName}", appCatH.Upsert)
+		r.With(mw.RequireRole(models.RoleEmployer)).Delete("/app-categories/{appName}", appCatH.Delete)
+
+		// Timesheets — weekly approval workflow (employee submits, employer approves)
+		r.Get("/timesheets", timesheetH.List)
+		r.Post("/timesheets", timesheetH.Create)
+		r.Post("/timesheets/{id}/submit", timesheetH.Submit)
+		r.Post("/timesheets/{id}/recall", timesheetH.Recall)
+		r.With(mw.RequireRole(models.RoleEmployer)).Post("/timesheets/{id}/approve", timesheetH.Approve)
+		r.With(mw.RequireRole(models.RoleEmployer)).Post("/timesheets/{id}/reject", timesheetH.Reject)
+		r.With(mw.RequireRole(models.RoleEmployer)).Get("/timesheet-preview", previewH.Get)
 
 		// God super-admin — cross-organization administration
 		r.With(mw.RequireGod).Get("/admin/orgs", adminH.ListOrgs)

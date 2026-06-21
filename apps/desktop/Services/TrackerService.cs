@@ -301,11 +301,12 @@ public sealed class TrackerService
         string thumb = Path.Combine(dir, $"{timestamp}_thumb.jpg");
 
         string? windowTitle = WindowTitle.GetActiveWindowTitle();
+        string? appName = WindowTitle.GetActiveAppName();
         double activityPct = _activity.TakePercent(intervalSecs);
 
         await Task.Run(() => ScreenshotService.Capture(png, thumb));
 
-        long intervalId = _db.InsertInterval(startTime, png, thumb, activityPct, windowTitle, _selectedProjectId, notes: _workingNotes);
+        long intervalId = _db.InsertInterval(startTime, png, thumb, activityPct, windowTitle, _selectedProjectId, notes: _workingNotes, appName: appName);
 
         // Keys are relative to the user's prefix; the API prepends the user id when
         // it mints the presigned URL, so no Spaces credentials live on the client.

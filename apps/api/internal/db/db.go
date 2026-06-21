@@ -74,6 +74,10 @@ CREATE TABLE IF NOT EXISTS projects (
 -- default rate when set (> 0).
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS hourly_rate_cents INTEGER NOT NULL DEFAULT 0;
 
+-- Optional billing budget for this project (cents); 0 means no budget. The
+-- employer is warned as consumed billable approaches/exceeds it.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS budget_cents BIGINT NOT NULL DEFAULT 0;
+
 CREATE TABLE IF NOT EXISTS project_members (
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -138,6 +142,42 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
     expires_at TIMESTAMPTZ NOT NULL,
     used_at    TIMESTAMPTZ
 );
+
+-- Process/application name captured alongside the window title on each interval.
+ALTER TABLE time_logs ADD COLUMN IF NOT EXISTS app_name TEXT;
+
+-- Per-org app categorization: employers tag app names as productive/neutral/unproductive.
+CREATE TABLE IF NOT EXISTS app_categories (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id     UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    app_name   TEXT NOT NULL,
+    category   TEXT NOT NULL DEFAULT 'neutral',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(org_id, app_name)
+);
+CREATE INDEX IF NOT EXISTS app_categories_org ON app_categories(org_id);
+
+-- Timesheets: weekly periods employees submit for employer approval.
+-- status: draft → submitted → approved | rejected
+-- Auto-approves the Monday after the week ends if the employer hasn't acted by Sunday.
+CREATE TABLE IF NOT EXISTS timesheets (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    org_id        UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    week_start    DATE NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'draft',
+    employee_note TEXT,
+    employer_note TEXT,
+    submitted_at  TIMESTAMPTZ,
+    reviewed_at   TIMESTAMPTZ,
+    reviewed_by   UUID REFERENCES users(id) ON DELETE SET NULL,
+    auto_approved BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(user_id, week_start)
+);
+CREATE INDEX IF NOT EXISTS timesheets_org_week ON timesheets(org_id, week_start DESC);
+CREATE INDEX IF NOT EXISTS timesheets_status   ON timesheets(status) WHERE status = 'submitted';
+ALTER TABLE timesheets ADD COLUMN IF NOT EXISTS total_billable_cents BIGINT NOT NULL DEFAULT 0;
 `
 
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect } from "react";
+import { formatClock } from "@/lib/format";
 import type { DiarySlot } from "@/types";
 
 interface Props {
@@ -6,13 +7,6 @@ interface Props {
   index: number;
   onClose: () => void;
   onNavigate: (index: number) => void;
-}
-
-function fmtTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  });
 }
 
 function activityColor(pct: number): string {
@@ -65,7 +59,7 @@ export default function Lightbox({ slots, index, onClose, onNavigate }: Props) {
             {slot.window_title || "Untitled window"}
           </p>
           <p className="text-xs text-white/60">
-            {fmtTime(slot.started_at)} · {index + 1} of {slots.length}
+            {formatClock(slot.started_at)} · {index + 1} of {slots.length}
           </p>
           {slot.notes && (
             <p className="text-xs text-white/80 mt-1 italic line-clamp-2" title={slot.notes}>

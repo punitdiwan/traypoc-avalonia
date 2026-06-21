@@ -4,11 +4,11 @@ import { Link } from "react-router-dom";
 import NavBar from "@/components/NavBar";
 import NameEditor from "@/components/NameEditor";
 import { Skeleton } from "@/components/Skeleton";
-import { overviewApi, projectsApi, usersApi } from "@/lib/api";
+import { appCategoriesApi, overviewApi, projectsApi, usersApi } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
 import { useToastStore } from "@/lib/toast";
-import { displayName, formatMoney, MAX_NAME_LEN, normalizeName, toCents } from "@/lib/format";
-import type { Project, ProjectMember, Task, User } from "@/types";
+import { displayName, formatDuration as fmtHours, formatMoney, MAX_NAME_LEN, normalizeName, toCents } from "@/lib/format";
+import type { AppCategory, AppSeen, Project, ProjectMember, Task, User } from "@/types";
 
 const inputClass =
   "border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 placeholder:text-gray-400 dark:placeholder:text-gray-500";
@@ -106,6 +106,7 @@ export default function ManagePage() {
         )}
 
         <EmployeesSection currency={currency} />
+        <AppCategoriesSection />
       </main>
     </div>
   );
@@ -124,7 +125,7 @@ function ProjectCard({ project, currency }: { project: Project; currency: string
   });
 
   const updateMutation = useMutation({
-    mutationFn: (patch: { name?: string; hourly_rate_cents?: number }) =>
+    mutationFn: (patch: { name?: string; hourly_rate_cents?: number; budget_cents?: number }) =>
       projectsApi.update(project.id, patch),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["projects"] });
@@ -161,7 +162,87 @@ function ProjectCard({ project, currency }: { project: Project; currency: string
           onSave={(cents) => updateMutation.mutate({ hourly_rate_cents: cents })}
         />
       </div>
+
+      <BudgetSection
+        budgetCents={project.budget_cents}
+        consumedCents={project.consumed_cents}
+        currency={currency}
+        pending={updateMutation.isPending}
+        onSave={(cents) => updateMutation.mutate({ budget_cents: cents })}
+      />
+
       <MembersEditor projectId={project.id} />
+    </div>
+  );
+}
+
+// Budget progress + inline editor. Warns at 80% (amber) and 100% (red).
+function BudgetSection({
+  budgetCents, consumedCents, currency, pending, onSave,
+}: {
+  budgetCents: number; consumedCents: number; currency: string; pending: boolean; onSave: (cents: number) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  const hasBudget = budgetCents > 0;
+  const pct = hasBudget ? Math.round((consumedCents / budgetCents) * 100) : 0;
+  const over = pct >= 100;
+  const warn = pct >= 80 && pct < 100;
+
+  const barColor = over ? "bg-red-500" : warn ? "bg-amber-500" : "bg-brand-600";
+  const pctLabelColor = over
+    ? "text-red-600 dark:text-red-400"
+    : warn
+    ? "text-amber-600 dark:text-amber-400"
+    : "text-gray-500 dark:text-gray-400";
+
+  const startEdit = () => { setDraft(hasBudget ? String(budgetCents / 100) : ""); setEditing(true); };
+  const commit = () => { onSave(toCents(draft)); setEditing(false); };
+
+  return (
+    <div className="mt-3 border-t border-gray-100 dark:border-gray-800 pt-3">
+      <div className="flex items-center justify-between mb-1.5">
+        <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">Budget</p>
+        {editing ? (
+          <div className="flex items-center gap-1">
+            <input
+              type="number" min="0" step="0.01" autoFocus value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") setEditing(false); }}
+              className="w-28 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
+              placeholder="Budget"
+            />
+            <button onClick={commit} disabled={pending} className="text-xs text-brand-600 dark:text-brand-400 hover:underline disabled:opacity-50">Save</button>
+            <button onClick={() => setEditing(false)} className="text-xs text-gray-400 hover:text-gray-600">✕</button>
+          </div>
+        ) : (
+          <button onClick={startEdit} className="text-xs text-gray-500 dark:text-gray-400 hover:text-brand-600 dark:hover:text-brand-400 transition-colors">
+            {hasBudget ? `${formatMoney(consumedCents, currency)} / ${formatMoney(budgetCents, currency)}` : "Set budget"}
+          </button>
+        )}
+      </div>
+
+      {hasBudget && (
+        <>
+          <div className="h-2 w-full rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+            <div className={`h-full rounded-full ${barColor} transition-all`} style={{ width: `${Math.min(pct, 100)}%` }} />
+          </div>
+          <div className="flex items-center justify-between mt-1">
+            <span className={`text-[11px] font-medium ${pctLabelColor}`}>{pct}% used</span>
+            {over && (
+              <span className="text-[11px] font-semibold text-red-600 dark:text-red-400">
+                ⚠ Over budget by {formatMoney(consumedCents - budgetCents, currency)}
+              </span>
+            )}
+            {warn && (
+              <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400">
+                ⚠ Approaching budget
+              </span>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -427,6 +508,12 @@ function EmployeesSection({ currency }: { currency: string }) {
                 >
                   View diary
                 </Link>
+                <Link
+                  to={`/timesheets?employee=${emp.id}&name=${encodeURIComponent(displayName(emp))}`}
+                  className="text-xs text-brand-600 dark:text-brand-400 hover:underline whitespace-nowrap"
+                >
+                  Timesheets
+                </Link>
                 <button
                   onClick={() => setEditing(emp)}
                   title="Edit employee details"
@@ -481,6 +568,97 @@ function Toggle({
         <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200 ${checked ? "translate-x-5" : "translate-x-0"}`} />
       </button>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// App Categories section — employer tags apps as productive/neutral/unproductive
+// ---------------------------------------------------------------------------
+
+const CATEGORY_META: Record<AppCategory, { label: string; cls: string }> = {
+  productive:   { label: "Productive",   cls: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" },
+  neutral:      { label: "Neutral",      cls: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400" },
+  unproductive: { label: "Unproductive", cls: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
+};
+
+function AppCategoriesSection() {
+  const qc = useQueryClient();
+  const addToast = useToastStore((s) => s.addToast);
+
+  const { data: apps = [], isLoading } = useQuery<AppSeen[]>({
+    queryKey: ["app-categories"],
+    queryFn: appCategoriesApi.list,
+  });
+
+  const upsertMutation = useMutation({
+    mutationFn: ({ appName, category }: { appName: string; category: string }) =>
+      appCategoriesApi.upsert(appName, category),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["app-categories"] }); },
+    onError: (e) => addToast(e instanceof Error ? e.message : "Update failed", "error"),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (appName: string) => appCategoriesApi.delete(appName),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["app-categories"] }); },
+    onError: (e) => addToast(e instanceof Error ? e.message : "Update failed", "error"),
+  });
+
+  if (isLoading || apps.length === 0) return null;
+
+  return (
+    <section className="mt-10">
+      <h2 className="text-2xl font-semibold text-gray-900 dark:text-gray-100 mb-2">App Tracking</h2>
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+        Tag applications as productive, neutral, or unproductive to compute productivity scores.
+      </p>
+
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50 dark:bg-gray-800/50 text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              <th className="px-4 py-3 text-left font-medium">Application</th>
+              <th className="px-4 py-3 text-left font-medium">Time logged</th>
+              <th className="px-4 py-3 text-left font-medium">Category</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+            {apps.map((app) => (
+              <tr key={app.app_name} className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
+                <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">{app.app_name}</td>
+                <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{fmtHours(app.total_seconds)}</td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    {app.category && (
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${CATEGORY_META[app.category].cls}`}>
+                        {CATEGORY_META[app.category].label}
+                      </span>
+                    )}
+                    <select
+                      value={app.category ?? ""}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === "") {
+                          deleteMutation.mutate(app.app_name);
+                        } else {
+                          upsertMutation.mutate({ appName: app.app_name, category: val });
+                        }
+                      }}
+                      disabled={upsertMutation.isPending || deleteMutation.isPending}
+                      className="text-xs border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-50"
+                    >
+                      <option value="">— Uncategorized —</option>
+                      <option value="productive">Productive</option>
+                      <option value="neutral">Neutral</option>
+                      <option value="unproductive">Unproductive</option>
+                    </select>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 

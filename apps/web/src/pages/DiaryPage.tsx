@@ -4,14 +4,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import NavBar from "@/components/NavBar";
 import DiaryTimeline from "@/components/DiaryTimeline";
 import DiaryTable from "@/components/DiaryTable";
+import EditTimeLogModal from "@/components/EditTimeLogModal";
 import { Skeleton, StatSkeleton } from "@/components/Skeleton";
 import { diaryApi, projectsApi, timeLogsApi, usersApi } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
 import { useToastStore } from "@/lib/toast";
-import { displayName } from "@/lib/format";
-import type { HourBucket, DailyDiary } from "@/types";
+import { displayName, todayISO } from "@/lib/format";
+import type { HourBucket, DailyDiary, DiarySlot } from "@/types";
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayISO();
 
 const MANUAL_PLACEHOLDER = "/manual-screenshot.svg";
 
@@ -59,6 +60,7 @@ export default function DiaryPage() {
   const [project, setProject] = useState("all");
   const [view, setView] = useState<ViewMode>("screenshot");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [editing, setEditing] = useState<DiarySlot | null>(null);
 
   const currentUser = useAuthStore((s) => s.user);
   const isEmployee = currentUser?.role === "employee";
@@ -336,9 +338,20 @@ export default function DiaryPage() {
             selected={selected}
             onToggle={toggleOne}
             onToggleDay={toggleDay}
+            canEdit={canDelete}
+            onEdit={setEditing}
           />
         )}
       </main>
+
+      {editing && (
+        <EditTimeLogModal
+          slot={editing}
+          projects={projects}
+          onClose={() => setEditing(null)}
+          onSaved={() => qc.invalidateQueries({ queryKey: ["diary", userId, from, to] })}
+        />
+      )}
     </div>
   );
 }

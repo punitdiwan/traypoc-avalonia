@@ -66,6 +66,7 @@ type TimeLog struct {
 	ScreenshotURL   *string    `json:"screenshot_url"`
 	ThumbnailURL    *string    `json:"thumbnail_url"`
 	WindowTitle     *string    `json:"window_title"`
+	AppName         *string    `json:"app_name"`
 	CreatedAt       time.Time  `json:"created_at"`
 }
 
@@ -73,4 +74,35 @@ type TimeLog struct {
 type DiaryEntry struct {
 	Hour     int       `json:"hour"`
 	TimeLogs []TimeLog `json:"time_logs"`
+}
+
+// AppSeen is a row in the app-categories view: an app name seen in the org's time
+// logs, with the total hours logged under it and the employer's category tag.
+type AppSeen struct {
+	AppName      string  `json:"app_name"`
+	TotalSeconds int     `json:"total_seconds"`
+	Category     *string `json:"category"`
+}
+
+// Timesheet is a weekly period an employee submits for employer approval.
+// WeekStart is always the ISO Monday of the week (YYYY-MM-DD).
+// Auto-approves on Monday if the employer hasn't acted by the Sunday of that week.
+type Timesheet struct {
+	ID           uuid.UUID  `json:"id"`
+	UserID       uuid.UUID  `json:"user_id"`
+	UserEmail    string     `json:"user_email,omitempty"`
+	UserFullName string     `json:"user_full_name,omitempty"`
+	OrgID        uuid.UUID  `json:"org_id"`
+	WeekStart    string     `json:"week_start"`
+	WeekEnd      string     `json:"week_end"`
+	Status       string     `json:"status"`
+	EmployeeNote *string    `json:"employee_note"`
+	EmployerNote *string    `json:"employer_note"`
+	SubmittedAt  *time.Time `json:"submitted_at"`
+	ReviewedAt   *time.Time `json:"reviewed_at"`
+	ReviewedBy   *uuid.UUID `json:"reviewed_by"`
+	AutoApproved       bool       `json:"auto_approved"`
+	CreatedAt          time.Time  `json:"created_at"`
+	TotalSeconds       int        `json:"total_seconds"`
+	TotalBillableCents int64      `json:"total_billable_cents"`
 }

@@ -3,12 +3,11 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import NavBar from "@/components/NavBar";
 import { StatSkeleton, Skeleton } from "@/components/Skeleton";
+import { Card, EmptyState, PageHeader } from "@/components/ui";
 import { diaryApi } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
-import { displayName } from "@/lib/format";
+import { displayName, formatClock, todayISO } from "@/lib/format";
 import type { DiarySlot } from "@/types";
-
-const today = () => new Date().toISOString().slice(0, 10);
 
 // Manual entries carry no screenshot — show the same shared placeholder the diary uses.
 const MANUAL_PLACEHOLDER = "/manual-screenshot.svg";
@@ -18,14 +17,10 @@ function thumbFor(s: DiarySlot): string {
   return "";
 }
 
-function fmtTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-}
-
 /** Read-only "today" summary for the signed-in employee, plus a jump to their diary. */
 export default function EmployeeDashboard() {
   const user = useAuthStore((s) => s.user);
-  const date = today();
+  const date = todayISO();
 
   const { data, isLoading } = useQuery({
     queryKey: ["diary", user?.id, date, date],
@@ -50,22 +45,20 @@ export default function EmployeeDashboard() {
     <div className="min-h-screen">
       <NavBar />
       <main className="max-w-4xl mx-auto px-6 py-8">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-          <div>
-            <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">My Dashboard</h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-              {user ? displayName(user) : ""} · Today
-            </p>
-          </div>
-          {user && (
-            <Link
-              to={`/diary/${user.id}`}
-              className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-            >
-              Open Work Diary →
-            </Link>
-          )}
-        </div>
+        <PageHeader
+          title="My Dashboard"
+          subtitle={`${user ? displayName(user) : ""} · Today`}
+          actions={
+            user && (
+              <Link
+                to={`/diary/${user.id}`}
+                className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+              >
+                Open Work Diary →
+              </Link>
+            )
+          }
+        />
 
         {isLoading ? (
           <div className="grid grid-cols-3 gap-4 mb-8">
@@ -89,15 +82,13 @@ export default function EmployeeDashboard() {
             <Skeleton className="h-14 w-24" />
           </div>
         ) : recent.length === 0 ? (
-          <p className="text-gray-400 dark:text-gray-500 text-sm py-8 text-center">
-            No activity recorded yet today.
-          </p>
+          <EmptyState className="py-8 text-center block">No activity recorded yet today.</EmptyState>
         ) : (
           <div className="flex flex-wrap gap-2">
             {recent.map((s) => {
               const url = thumbFor(s);
               return (
-                <div key={s.id} className="relative" title={`${fmtTime(s.started_at)} · ${s.window_title ?? ""}`}>
+                <div key={s.id} className="relative" title={`${formatClock(s.started_at)} · ${s.window_title ?? ""}`}>
                   {url ? (
                     <img
                       src={url}
@@ -121,9 +112,9 @@ export default function EmployeeDashboard() {
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 px-5 py-4">
+    <Card className="px-5 py-4" padded={false}>
       <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">{label}</p>
       <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{value}</p>
-    </div>
+    </Card>
   );
 }

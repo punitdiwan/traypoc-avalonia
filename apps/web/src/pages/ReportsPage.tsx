@@ -3,14 +3,14 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import NavBar from "@/components/NavBar";
 import { overviewApi } from "@/lib/api";
-import { displayName, formatHours, formatMoney } from "@/lib/format";
+import { displayName, formatHours, formatMoney, localDateISO, todayISO } from "@/lib/format";
 
 function isoDaysAgo(n: number): string {
   const d = new Date();
   d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0, 10);
+  return localDateISO(d);
 }
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayISO();
 
 function downloadCSV(filename: string, rows: (string | number)[][]) {
   const escape = (v: string | number) => {

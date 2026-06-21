@@ -19,6 +19,9 @@ public sealed class TimeInterval
     /// <summary>Free-text notes the employee entered for this interval (what they
     /// were working on). Sent to the API and shown in the Work Diary lightbox.</summary>
     public string? Notes { get; set; }
+    /// <summary>Process/application name of the active window when this interval was
+    /// captured (e.g. "chrome", "Code", "WINWORD"). Sent to the API for categorization.</summary>
+    public string? AppName { get; set; }
 }
 
 /// <summary>Port of the Rust <c>TrackerStatus</c>.</summary>

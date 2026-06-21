@@ -31,6 +31,7 @@ public sealed class TimeLogRequest
     public string? ScreenshotUrl { get; set; }
     public string? ThumbnailUrl { get; set; }
     public string? WindowTitle { get; set; }
+    public string? AppName { get; set; }
     public string? Notes { get; set; }
 }
 

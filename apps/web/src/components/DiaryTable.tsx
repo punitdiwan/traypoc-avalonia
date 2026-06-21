@@ -1,3 +1,4 @@
+import { formatClock, formatDuration } from "@/lib/format";
 import type { DailyDiary, HourBucket, DiarySlot } from "@/types";
 
 interface Props {
@@ -7,18 +8,8 @@ interface Props {
   selected: Set<string>;
   onToggle: (id: string) => void;
   onToggleDay: (date: string, ids: string[]) => void;
-}
-
-function fmtTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-}
-
-function fmtDuration(secs: number): string {
-  const m = Math.round(secs / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  const rem = m % 60;
-  return rem === 0 ? `${h}h` : `${h}h ${rem}m`;
+  canEdit?: boolean;
+  onEdit?: (slot: DiarySlot) => void;
 }
 
 function fmtDate(iso: string): string {
@@ -51,6 +42,8 @@ export default function DiaryTable({
   selected,
   onToggle,
   onToggleDay,
+  canEdit = false,
+  onEdit,
 }: Props) {
   if (days.length === 0) {
     return (
@@ -88,7 +81,7 @@ export default function DiaryTable({
                 <span className="ml-2 font-normal normal-case text-gray-400 dark:text-gray-500">
                   · {allSlots.length} interval{allSlots.length !== 1 ? "s" : ""}
                   {" · "}
-                  {fmtDuration(allSlots.reduce((a, s) => a + s.duration_seconds, 0))}
+                  {formatDuration(allSlots.reduce((a, s) => a + s.duration_seconds, 0))}
                 </span>
               </h2>
             </div>
@@ -103,8 +96,10 @@ export default function DiaryTable({
                     <th className="px-4 py-2 text-left font-medium">Duration</th>
                     <th className="px-4 py-2 text-left font-medium">Activity</th>
                     <th className="px-4 py-2 text-left font-medium">Project</th>
+                    <th className="px-4 py-2 text-left font-medium">App</th>
                     <th className="px-4 py-2 text-left font-medium">Window / Type</th>
                     <th className="px-4 py-2 text-left font-medium">Notes</th>
+                    {canEdit && <th className="w-10 px-3 py-2" />}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -132,12 +127,12 @@ export default function DiaryTable({
                           </td>
                         )}
                         <td className="px-4 py-2.5 text-gray-700 dark:text-gray-300 whitespace-nowrap font-mono text-xs">
-                          {fmtTime(slot.started_at)}
+                          {formatClock(slot.started_at)}
                           <span className="text-gray-400 dark:text-gray-500 mx-1">→</span>
-                          {fmtTime(slot.ended_at)}
+                          {formatClock(slot.ended_at)}
                         </td>
                         <td className="px-4 py-2.5 text-gray-700 dark:text-gray-300 whitespace-nowrap">
-                          {fmtDuration(slot.duration_seconds)}
+                          {formatDuration(slot.duration_seconds)}
                         </td>
                         <td className="px-4 py-2.5">
                           {isManual ? (
@@ -148,6 +143,15 @@ export default function DiaryTable({
                         </td>
                         <td className="px-4 py-2.5 text-gray-700 dark:text-gray-300 max-w-[150px] truncate">
                           {projectName}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          {slot.app_name ? (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400 max-w-[120px] truncate" title={slot.app_name}>
+                              {slot.app_name}
+                            </span>
+                          ) : (
+                            <span className="text-gray-300 dark:text-gray-600 text-xs">—</span>
+                          )}
                         </td>
                         <td className="px-4 py-2.5 text-gray-500 dark:text-gray-400 max-w-[200px] truncate">
                           {isManual ? (
@@ -167,6 +171,19 @@ export default function DiaryTable({
                             <span className="text-gray-300 dark:text-gray-600 text-xs">—</span>
                           )}
                         </td>
+                        {canEdit && (
+                          <td className="px-3 py-2.5 text-center">
+                            <button
+                              onClick={() => onEdit?.(slot)}
+                              title="Edit entry"
+                              className="h-7 w-7 inline-flex items-center justify-center rounded-lg text-gray-400 hover:text-brand-600 dark:hover:text-brand-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+                                <path d="M13.488 2.513a1.75 1.75 0 0 0-2.475 0L6.75 6.774a2.75 2.75 0 0 0-.714 1.268L5.5 10.25a.75.75 0 0 0 .914.914l2.208-.536a2.75 2.75 0 0 0 1.268-.714l4.261-4.263a1.75 1.75 0 0 0 0-2.475l-.663-.663ZM3.75 12.5a.75.75 0 0 0 0 1.5h8.5a.75.75 0 0 0 0-1.5h-8.5Z" />
+                              </svg>
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     );
                   })}

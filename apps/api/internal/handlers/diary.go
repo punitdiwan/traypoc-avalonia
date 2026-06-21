@@ -32,6 +32,7 @@ type diarySlot struct {
 	ScreenshotURL   *string    `json:"screenshot_url"`
 	ThumbnailURL    *string    `json:"thumbnail_url"`
 	WindowTitle     *string    `json:"window_title"`
+	AppName         *string    `json:"app_name"`
 	Notes           *string    `json:"notes"`
 	ProjectID       *uuid.UUID `json:"project_id"`
 	TaskID          *uuid.UUID `json:"task_id"`
@@ -120,7 +121,7 @@ func (h *DiaryHandler) Get(w http.ResponseWriter, r *http.Request) {
 		    (started_at AT TIME ZONE 'UTC')::date AS log_date,
 		    EXTRACT(HOUR FROM started_at AT TIME ZONE 'UTC')::int AS hour,
 		    started_at, ended_at, duration_seconds, activity_percent,
-		    screenshot_url, thumbnail_url, window_title, notes,
+		    screenshot_url, thumbnail_url, window_title, app_name, notes,
 		    project_id, task_id
 		 FROM time_logs
 		 WHERE user_id=$1
@@ -149,7 +150,7 @@ func (h *DiaryHandler) Get(w http.ResponseWriter, r *http.Request) {
 		err := rows.Scan(
 			&s.ID, &logDate, &s.Hour, &s.StartedAt, &s.EndedAt, &s.DurationSeconds,
 			&s.ActivityPercent, &s.ScreenshotURL, &s.ThumbnailURL,
-			&s.WindowTitle, &s.Notes, &s.ProjectID, &s.TaskID,
+			&s.WindowTitle, &s.AppName, &s.Notes, &s.ProjectID, &s.TaskID,
 		)
 		if err != nil {
 			continue

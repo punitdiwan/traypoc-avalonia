@@ -34,6 +34,8 @@ export interface Project {
   name: string;
   owner_id: string;
   hourly_rate_cents: number;
+  budget_cents: number;
+  consumed_cents: number;
   created_at: string;
 }
 
@@ -56,6 +58,7 @@ export interface TimeLog {
   screenshot_url: string | null;
   thumbnail_url: string | null;
   window_title: string | null;
+  app_name: string | null;
   created_at: string;
 }
 
@@ -69,9 +72,70 @@ export interface DiarySlot {
   screenshot_url: string | null;
   thumbnail_url: string | null;
   window_title: string | null;
+  app_name: string | null;
   notes: string | null;
   project_id: string | null;
   task_id: string | null;
+}
+
+export type AppCategory = "productive" | "neutral" | "unproductive";
+
+export interface AppSeen {
+  app_name: string;
+  total_seconds: number;
+  category: AppCategory | null;
+}
+
+export type TimesheetStatus = "draft" | "submitted" | "approved" | "rejected";
+
+export interface Timesheet {
+  id: string;
+  user_id: string;
+  user_email: string;
+  user_full_name: string;
+  org_id: string;
+  week_start: string;
+  week_end: string;
+  status: TimesheetStatus;
+  employee_note: string | null;
+  employer_note: string | null;
+  submitted_at: string | null;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  auto_approved: boolean;
+  created_at: string;
+  total_seconds: number;
+  total_billable_cents: number;
+}
+
+export interface TimesheetPreviewDaily {
+  date: string;
+  seconds: number;
+}
+
+export interface TimesheetPreviewProject {
+  project_id: string | null;
+  name: string;
+  seconds: number;
+  billable_cents: number;
+}
+
+export interface TimesheetPreviewApp {
+  app_name: string;
+  seconds: number;
+  category: AppCategory | null;
+}
+
+export interface TimesheetPreview {
+  user_id: string;
+  from: string;
+  to: string;
+  daily_hours: TimesheetPreviewDaily[];
+  projects: TimesheetPreviewProject[];
+  apps: TimesheetPreviewApp[];
+  total_seconds: number;
+  total_billable_cents: number;
+  currency: string;
 }
 
 export interface HourBucket {
@@ -156,5 +220,7 @@ export interface InvoiceResponse {
   line_items: InvoiceLine[];
   total_seconds: number;
   total_cents: number;
+  /** true when total_cents is the frozen amount from an approved timesheet. */
+  locked: boolean;
   generated_at: string;
 }

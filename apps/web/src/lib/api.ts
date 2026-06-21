@@ -1,4 +1,5 @@
 import type {
+  AppSeen,
   DiaryResponse,
   InvoiceResponse,
   OrgSummary,
@@ -7,6 +8,7 @@ import type {
   ProjectMember,
   Task,
   TimeLog,
+  Timesheet,
   User,
 } from "@/types";
 
@@ -41,6 +43,36 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!res.ok) throw new Error(await res.text());
   if (res.status === 204) return undefined as unknown as T;
   return res.json() as Promise<T>;
+}
+
+// Fetch a binary response (with auth + refresh) and trigger a browser download.
+async function downloadFile(path: string, filename: string): Promise<void> {
+  const headers: Record<string, string> = {};
+  const t = token();
+  if (t) headers["Authorization"] = `Bearer ${t}`;
+
+  let res = await fetch(`${BASE}${path}`, { headers });
+  if (res.status === 401) {
+    const refreshed = await tryRefresh();
+    if (!refreshed) {
+      localStorage.removeItem("access_token");
+      window.location.href = "/login";
+      throw new Error("Session expired");
+    }
+    headers["Authorization"] = `Bearer ${token()}`;
+    res = await fetch(`${BASE}${path}`, { headers });
+  }
+  if (!res.ok) throw new Error(await res.text());
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 async function tryRefresh(): Promise<boolean> {
@@ -140,7 +172,7 @@ export const projectsApi = {
       method: "POST",
       body: JSON.stringify({ name, hourly_rate_cents: hourlyRateCents }),
     }),
-  update: (projectId: string, patch: { name?: string; hourly_rate_cents?: number }) =>
+  update: (projectId: string, patch: { name?: string; hourly_rate_cents?: number; budget_cents?: number }) =>
     request<void>(`/projects/${projectId}`, {
       method: "PATCH",
       body: JSON.stringify(patch),
@@ -232,12 +264,23 @@ export const adminApi = {
 };
 
 // Time logs
+export interface TimeLogPatch {
+  project_id?: string | null;
+  started_at?: string;
+  ended_at?: string;
+  notes?: string | null;
+}
+
 export const timeLogsApi = {
   list: (date?: string) =>
     request<TimeLog[]>(`/time-logs${date ? `?date=${date}` : ""}`),
   // Delete a single time log (and its screenshot). Allowed for the org owner on any
   // employee, or for the employee themselves when the employer enabled allow_delete.
   delete: (id: string) => request<void>(`/time-logs/${id}`, { method: "DELETE" }),
+  // Edit a single time log's project, time window, or notes. Same authorization as
+  // delete (employer/god any in org; employee own when allow_delete is on).
+  update: (id: string, patch: TimeLogPatch) =>
+    request<TimeLog>(`/time-logs/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
 };
 
 // Diary
@@ -260,10 +303,67 @@ export const overviewApi = {
   },
 };
 
-// Billable invoice / timesheet for one employee (employer-only)
+// Billable invoice / timesheet for one employee.
+// Access is enforced server-side: employer/god for any org employee, an
+// employee for their own.
 export const invoiceApi = {
-  get: (userId: string, from: string, to: string) =>
+  get: (userId: string, from: string, to: string, approved = false) =>
     request<InvoiceResponse>(
-      `/invoice?user_id=${userId}&from=${from}&to=${to}`
+      `/invoice?user_id=${userId}&from=${from}&to=${to}${approved ? "&approved=1" : ""}`
+    ),
+  downloadPdf: (
+    userId: string,
+    from: string,
+    to: string,
+    opts?: { approved?: boolean }
+  ) =>
+    downloadFile(
+      `/invoice.pdf?user_id=${userId}&from=${from}&to=${to}${opts?.approved ? "&approved=1" : ""}`,
+      `invoice-${from}-to-${to}.pdf`
+    ),
+};
+
+// App categories — employer tags app names as productive/neutral/unproductive
+export const appCategoriesApi = {
+  list: () => request<AppSeen[]>("/app-categories"),
+  upsert: (appName: string, category: string) =>
+    request<void>(`/app-categories/${encodeURIComponent(appName)}`, {
+      method: "PUT",
+      body: JSON.stringify({ category }),
+    }),
+  delete: (appName: string) =>
+    request<void>(`/app-categories/${encodeURIComponent(appName)}`, {
+      method: "DELETE",
+    }),
+};
+
+// Timesheets — weekly approval workflow
+export const timesheetsApi = {
+  list: () => request<Timesheet[]>("/timesheets"),
+  create: (weekStart: string, employeeNote?: string) =>
+    request<Timesheet>("/timesheets", {
+      method: "POST",
+      body: JSON.stringify({ week_start: weekStart, employee_note: employeeNote ?? null }),
+    }),
+  submit: (id: string, employeeNote?: string) =>
+    request<void>(`/timesheets/${id}/submit`, {
+      method: "POST",
+      body: JSON.stringify({ employee_note: employeeNote ?? null }),
+    }),
+  recall: (id: string) =>
+    request<void>(`/timesheets/${id}/recall`, { method: "POST", body: "{}" }),
+  approve: (id: string, employerNote?: string) =>
+    request<void>(`/timesheets/${id}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ employer_note: employerNote ?? null }),
+    }),
+  reject: (id: string, employerNote: string) =>
+    request<void>(`/timesheets/${id}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ employer_note: employerNote }),
+    }),
+  preview: (userId: string, from: string, to: string) =>
+    request<import("../types").TimesheetPreview>(
+      `/timesheet-preview?user_id=${userId}&from=${from}&to=${to}`
     ),
 };

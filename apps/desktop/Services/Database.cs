@@ -58,6 +58,8 @@ public sealed class Database : IDisposable
         EnsureColumn("time_intervals", "manual", "INTEGER NOT NULL DEFAULT 0");
         // Free-text working notes the employee attaches to each interval. Added later.
         EnsureColumn("time_intervals", "notes", "TEXT");
+        // Process/app name of the active window at capture time (e.g. "chrome", "Code").
+        EnsureColumn("time_intervals", "app_name", "TEXT");
     }
 
     /// <summary>Adds a column if it isn't already present (SQLite has no
@@ -86,15 +88,15 @@ public sealed class Database : IDisposable
 
     public long InsertInterval(string startTime, string? screenshotPath, string? thumbPath,
         double activityPercent, string? windowTitle, string? projectId, bool manual = false,
-        string? notes = null)
+        string? notes = null, string? appName = null)
     {
         lock (_lock)
         {
             using var cmd = _conn.CreateCommand();
             cmd.CommandText = """
                 INSERT INTO time_intervals
-                 (start_time, end_time, screenshot_path, thumb_path, activity_percent, window_title, project_id, manual, notes)
-                 VALUES ($start, $start, $shot, $thumb, $act, $title, $project, $manual, $notes);
+                 (start_time, end_time, screenshot_path, thumb_path, activity_percent, window_title, project_id, manual, notes, app_name)
+                 VALUES ($start, $start, $shot, $thumb, $act, $title, $project, $manual, $notes, $appname);
                 SELECT last_insert_rowid();
                 """;
             cmd.Parameters.AddWithValue("$start", startTime);
@@ -106,6 +108,7 @@ public sealed class Database : IDisposable
             cmd.Parameters.AddWithValue("$manual", manual ? 1 : 0);
             var notesVal = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
             cmd.Parameters.AddWithValue("$notes", (object?)notesVal ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$appname", (object?)appName ?? DBNull.Value);
             return (long)(cmd.ExecuteScalar() ?? 0L);
         }
     }
@@ -317,7 +320,7 @@ public sealed class Database : IDisposable
 
     private const string SelectCols =
         "SELECT id, start_time, end_time, screenshot_path, thumb_path, spaces_url, " +
-        "activity_percent, window_title, synced, project_id, manual, notes FROM time_intervals";
+        "activity_percent, window_title, synced, project_id, manual, notes, app_name FROM time_intervals";
 
     private static List<TimeInterval> ReadIntervals(SqliteCommand cmd)
     {
@@ -339,6 +342,7 @@ public sealed class Database : IDisposable
                 ProjectId = r.IsDBNull(9) ? null : r.GetString(9),
                 Manual = !r.IsDBNull(10) && r.GetInt32(10) != 0,
                 Notes = r.IsDBNull(11) ? null : r.GetString(11),
+                AppName = r.IsDBNull(12) ? null : r.GetString(12),
             });
         }
         return list;

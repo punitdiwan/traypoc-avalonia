@@ -79,6 +79,9 @@ export default function NavBar() {
               <NavLink to={`/diary/${user.id}`} className={linkClass}>
                 Work Diary
               </NavLink>
+              <NavLink to="/timesheets" className={linkClass}>
+                Timesheets
+              </NavLink>
             </>
           ) : (
             <>

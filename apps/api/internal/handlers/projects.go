@@ -32,16 +32,24 @@ func (h *ProjectHandler) List(w http.ResponseWriter, r *http.Request) {
 		}
 		err error
 	)
+	// consumedExpr: billable cents logged against this project to date, using the
+	// same rate resolution as billing (project rate > employee default > 0).
+	const consumedExpr = `COALESCE((
+		SELECT (SUM(t.duration_seconds::bigint * COALESCE(NULLIF(p.hourly_rate_cents,0), u.hourly_rate_cents, 0)) / 3600)::bigint
+		FROM time_logs t JOIN users u ON u.id = t.user_id
+		WHERE t.project_id = p.id
+	), 0)`
+
 	if mw.IsGod(r) {
 		// God sees every project across all organizations.
 		rows, err = h.db.Query(r.Context(),
-			`SELECT id, name, owner_id, hourly_rate_cents, created_at
-			 FROM projects ORDER BY created_at DESC`)
+			`SELECT p.id, p.name, p.owner_id, p.hourly_rate_cents, p.budget_cents, `+consumedExpr+`, p.created_at
+			 FROM projects p ORDER BY p.created_at DESC`)
 	} else {
 		// Within the caller's org: employees see projects they're a member of;
 		// employers see the projects they own.
 		rows, err = h.db.Query(r.Context(),
-			`SELECT DISTINCT p.id, p.name, p.owner_id, p.hourly_rate_cents, p.created_at
+			`SELECT DISTINCT p.id, p.name, p.owner_id, p.hourly_rate_cents, p.budget_cents, `+consumedExpr+`, p.created_at
 			 FROM projects p
 			 LEFT JOIN project_members pm ON pm.project_id = p.id
 			 WHERE p.org_id=$1 AND (p.owner_id=$2 OR pm.user_id=$2)
@@ -60,12 +68,14 @@ func (h *ProjectHandler) List(w http.ResponseWriter, r *http.Request) {
 		Name            string    `json:"name"`
 		OwnerID         uuid.UUID `json:"owner_id"`
 		HourlyRateCents int       `json:"hourly_rate_cents"`
+		BudgetCents     int64     `json:"budget_cents"`
+		ConsumedCents   int64     `json:"consumed_cents"`
 		CreatedAt       time.Time `json:"created_at"`
 	}
 	var projects []project
 	for rows.Next() {
 		var p project
-		if err := rows.Scan(&p.ID, &p.Name, &p.OwnerID, &p.HourlyRateCents, &p.CreatedAt); err == nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.OwnerID, &p.HourlyRateCents, &p.BudgetCents, &p.ConsumedCents, &p.CreatedAt); err == nil {
 			projects = append(projects, p)
 		}
 	}
@@ -120,12 +130,13 @@ func (h *ProjectHandler) Update(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name            *string `json:"name"`
 		HourlyRateCents *int    `json:"hourly_rate_cents"`
+		BudgetCents     *int64  `json:"budget_cents"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid body", http.StatusBadRequest)
 		return
 	}
-	if req.Name == nil && req.HourlyRateCents == nil {
+	if req.Name == nil && req.HourlyRateCents == nil && req.BudgetCents == nil {
 		http.Error(w, "nothing to update", http.StatusBadRequest)
 		return
 	}
@@ -133,14 +144,19 @@ func (h *ProjectHandler) Update(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "rate must be non-negative", http.StatusBadRequest)
 		return
 	}
+	if req.BudgetCents != nil && *req.BudgetCents < 0 {
+		http.Error(w, "budget must be non-negative", http.StatusBadRequest)
+		return
+	}
 
 	// COALESCE keeps the existing value for any field omitted from the request.
 	tag, err := h.db.Exec(r.Context(),
 		`UPDATE projects
 		 SET name = COALESCE($1, name),
-		     hourly_rate_cents = COALESCE($2, hourly_rate_cents)
-		 WHERE id=$3 AND owner_id=$4`,
-		req.Name, req.HourlyRateCents, projectID, ownerID,
+		     hourly_rate_cents = COALESCE($2, hourly_rate_cents),
+		     budget_cents = COALESCE($3, budget_cents)
+		 WHERE id=$4 AND owner_id=$5`,
+		req.Name, req.HourlyRateCents, req.BudgetCents, projectID, ownerID,
 	)
 	if err != nil {
 		http.Error(w, "update error", http.StatusInternalServerError)

@@ -9,6 +9,7 @@ import SignupPage from "./pages/SignupPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import ManagePage from "./pages/ManagePage";
+import TimesheetsPage from "./pages/TimesheetsPage";
 import AdminPage from "./pages/AdminPage";
 import DiaryPage from "./pages/DiaryPage";
 import ReportsPage from "./pages/ReportsPage";
@@ -61,11 +62,13 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="/dashboard" element={<DashboardRoute />} />
             {/* Own diary for employees; any org employee for employer/god. */}
             <Route path="/diary/:userId" element={<DiaryPage />} />
+            <Route path="/timesheets" element={<TimesheetsPage />} />
+            {/* Invoice: employees may view their own; the API enforces ownership. */}
+            <Route path="/invoice/:userId" element={<InvoicePage />} />
             <Route element={<RequireEmployer />}>
               <Route path="/manage" element={<ManagePage />} />
               <Route path="/admin" element={<AdminPage />} />
               <Route path="/reports" element={<ReportsPage />} />
-              <Route path="/invoice/:userId" element={<InvoicePage />} />
             </Route>
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />

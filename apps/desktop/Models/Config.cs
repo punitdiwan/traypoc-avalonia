@@ -24,6 +24,9 @@ public sealed class AppConfig
     /// Set to 0 to disable auto-pause entirely.</summary>
     public long IdleAutopauseMinutes { get; set; } = 5;
 
+    /// <summary>Whether to automatically start tracking on application startup if logged in.</summary>
+    public bool AutoStartTracking { get; set; } = false;
+
     public AppConfig Clone() => (AppConfig)MemberwiseClone();
 }
 

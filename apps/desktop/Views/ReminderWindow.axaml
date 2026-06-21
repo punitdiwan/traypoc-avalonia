@@ -1,0 +1,90 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        x:Class="TrayPoc.Views.ReminderWindow"
+        Icon="/Assets/tray-icon.ico"
+        Title="⚠ TIME TRACKER — NOT RUNNING"
+        Width="720" Height="480"
+        MinWidth="720" MinHeight="480"
+        MaxWidth="720" MaxHeight="480"
+        CanResize="False"
+        WindowStartupLocation="CenterScreen"
+        Topmost="True"
+        Background="#0a0a0a"
+        SystemDecorations="Full">
+
+    <Border Background="#0a0a0a" BorderBrush="#ef4444" BorderThickness="4">
+        <Grid RowDefinitions="Auto,*,Auto" Margin="0">
+
+            <!-- Top alert bar -->
+            <Border Grid.Row="0" Background="#7f1d1d" Padding="0,14">
+                <StackPanel HorizontalAlignment="Center" Spacing="4">
+                    <TextBlock Text="⚠  TIME TRACKER IS NOT RUNNING  ⚠"
+                               FontSize="22" FontWeight="Bold"
+                               Foreground="#fef2f2"
+                               HorizontalAlignment="Center"
+                               LetterSpacing="3"/>
+                    <TextBlock Text="Your work time is NOT being recorded right now."
+                               FontSize="13" Foreground="#fca5a5"
+                               HorizontalAlignment="Center"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Center content -->
+            <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="28">
+
+                <!-- Icon + Message -->
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="28" VerticalAlignment="Center">
+                    <Image Source="/Assets/tray-icon-128.png" Width="96" Height="96" VerticalAlignment="Center"/>
+                    <StackPanel VerticalAlignment="Center" Spacing="10">
+                        <TextBlock Text="You have NOT started tracking!"
+                                   FontSize="28" FontWeight="Bold"
+                                   Foreground="#f87171"/>
+                        <TextBlock Text="The time tracker has been stopped for over 2 minutes."
+                                   FontSize="16" Foreground="#d1d5db"
+                                   TextWrapping="Wrap" MaxWidth="420"/>
+                        <TextBlock Text="Click the button below to start tracking immediately."
+                                   FontSize="14" Foreground="#9ca3af"
+                                   TextWrapping="Wrap" MaxWidth="420"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Error hint -->
+                <TextBlock x:Name="ErrorText"
+                           Foreground="#fca5a5" FontSize="13"
+                           TextWrapping="Wrap"
+                           HorizontalAlignment="Center"
+                           MaxWidth="520"
+                           Margin="0,0,0,0"/>
+
+            </StackPanel>
+
+            <!-- Bottom action bar -->
+            <Border Grid.Row="2" Background="#111827" Padding="32,20">
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="4">
+                        <TextBlock Text="You must start tracking to continue working."
+                                   FontSize="13" FontWeight="SemiBold"
+                                   Foreground="#e5e7eb"/>
+                        <TextBlock Text="This reminder will reappear every 2 minutes until tracking is started."
+                                   FontSize="11" Foreground="#6b7280"/>
+                    </StackPanel>
+                    <Button Grid.Column="1"
+                            x:Name="StartButton"
+                            Content="▶  Start Tracking Now"
+                            Click="Start_OnClick"
+                            Background="#2563eb"
+                            Foreground="White"
+                            FontSize="16"
+                            FontWeight="Bold"
+                            Padding="32,14"
+                            CornerRadius="8"
+                            VerticalAlignment="Center"/>
+                </Grid>
+            </Border>
+
+        </Grid>
+    </Border>
+</Window>

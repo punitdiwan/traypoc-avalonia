@@ -51,6 +51,14 @@
                     <ToggleSwitch Grid.Column="1" IsChecked="{Binding AutostartEnabled}"
                                   VerticalAlignment="Center"/>
                 </Grid>
+                <Grid ColumnDefinitions="*,Auto" Margin="0,8,0,0">
+                    <StackPanel Grid.Column="0" Spacing="2">
+                        <TextBlock Text="Auto-Start Tracking" Classes="label"/>
+                        <TextBlock Text="Start tracking automatically on application launch" Classes="hint"/>
+                    </StackPanel>
+                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding AutoStartTracking}"
+                                  VerticalAlignment="Center"/>
+                </Grid>
             </StackPanel>
         </Border>
 

@@ -17,6 +17,7 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] private long _captureIntervalSecs = 600;
     [ObservableProperty] private long _idleThresholdSecs = 300;
     [ObservableProperty] private long _idleAutopauseMinutes = 5;
+    [ObservableProperty] private bool _autoStartTracking;
 
     [ObservableProperty] private bool _autostartEnabled;
     [ObservableProperty] private string _saveStatus = "Save Settings";
@@ -55,6 +56,7 @@ public partial class SettingsViewModel : ViewModelBase
         CaptureIntervalSecs = c.CaptureIntervalSecs;
         IdleThresholdSecs = c.IdleThresholdSecs;
         IdleAutopauseMinutes = c.IdleAutopauseMinutes;
+        AutoStartTracking = c.AutoStartTracking;
         UserEmail = _services.Auth.UserEmail;
         UserName = _services.Auth.UserName;
         UserRole = _services.Auth.UserRole;
@@ -81,6 +83,7 @@ public partial class SettingsViewModel : ViewModelBase
         c.CaptureIntervalSecs = Math.Clamp(CaptureIntervalSecs, 10, 3600);
         c.IdleThresholdSecs = Math.Clamp(IdleThresholdSecs, 30, 1800);
         c.IdleAutopauseMinutes = Math.Clamp(IdleAutopauseMinutes, 0, 60);
+        c.AutoStartTracking = AutoStartTracking;
         _services.Config.Update(c);
 
         SaveStatus = "Saved!";

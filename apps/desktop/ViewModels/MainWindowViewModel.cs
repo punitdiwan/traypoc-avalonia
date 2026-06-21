@@ -1,7 +1,9 @@
+using System;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using TrayPoc.Services;
+using TrayPoc.Views;
 
 namespace TrayPoc.ViewModels;
 
@@ -12,6 +14,9 @@ namespace TrayPoc.ViewModels;
 public partial class MainWindowViewModel : ViewModelBase
 {
     private readonly AppServices _services;
+    private DispatcherTimer? _reminderTimer;
+    private int _stoppedSeconds = 0;
+    private static ReminderWindow? _activeReminder;
 
     public LoginViewModel LoginVm { get; }
     public DashboardViewModel DashboardVm { get; }
@@ -80,6 +85,10 @@ public partial class MainWindowViewModel : ViewModelBase
         UpdateCurrentPage();
         if (IsAuthenticated)
             StartSession();
+
+        _reminderTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        _reminderTimer.Tick += (s, e) => CheckReminder();
+        _reminderTimer.Start();
     }
 
     private void UpdateCanToggleTracking() =>
@@ -131,6 +140,11 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         _services.Sync.Start();
         DashboardVm.Activate();
+
+        if (_services.Config.Current.AutoStartTracking && _services.Tracker.CanStart && !_services.Tracker.Running)
+        {
+            _services.Tracker.Start();
+        }
     }
 
     partial void OnActiveTabChanged(string value) => UpdateCurrentPage();
@@ -157,5 +171,32 @@ public partial class MainWindowViewModel : ViewModelBase
             _services.Tracker.Stop();
         else if (_services.Tracker.CanStart) // refuses to start without a project
             _services.Tracker.Start();
+    }
+
+    private void CheckReminder()
+    {
+        if (IsAuthenticated && !_services.Tracker.Running)
+        {
+            _stoppedSeconds += 5;
+            if (_stoppedSeconds >= 120)
+            {
+                _stoppedSeconds = 0;
+                ShowReminderPopup();
+            }
+        }
+        else
+        {
+            _stoppedSeconds = 0;
+        }
+    }
+
+    private void ShowReminderPopup()
+    {
+        if (_activeReminder is not null)
+            return;
+
+        _activeReminder = new ReminderWindow(_services);
+        _activeReminder.Closed += (s, e) => _activeReminder = null;
+        _activeReminder.Show();
     }
 }

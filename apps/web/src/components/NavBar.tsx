@@ -82,6 +82,9 @@ export default function NavBar() {
               <NavLink to="/timesheets" className={linkClass}>
                 Timesheets
               </NavLink>
+              <NavLink to="/claims" className={linkClass}>
+                Claims
+              </NavLink>
             </>
           ) : (
             <>
@@ -93,6 +96,9 @@ export default function NavBar() {
               </NavLink>
               <NavLink to="/manage" className={linkClass}>
                 Manage
+              </NavLink>
+              <NavLink to="/claims" className={linkClass}>
+                Claims
               </NavLink>
               {user?.role === "god" && (
                 <NavLink to="/admin" className={linkClass}>

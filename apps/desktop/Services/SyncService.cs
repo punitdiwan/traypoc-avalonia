@@ -205,7 +205,9 @@ public sealed class SyncService
                     return; // refresh rejected (e.g. tracking disabled) → already logged out
                 policy = await _api.GetPolicyAsync(_auth.AccessToken, ct);
             }
-            _policy.Apply(policy.CanTrack, policy.AllowManualTime, policy.RequireNotes, ProjectsSignature(policy.Projects));
+            _policy.Apply(policy.CanTrack, policy.AllowManualTime, policy.RequireNotes,
+                policy.BreaksEnabled, policy.BreakDurationMinutes, policy.BreaksPerDay, policy.BreakDailyMinutes,
+                ProjectsSignature(policy.Projects));
         }
         catch (Exception e)
         {

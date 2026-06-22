@@ -30,6 +30,13 @@ type invoiceLine struct {
 	AmountCents int64      `json:"amount_cents"`
 }
 
+// claimLine is one approved extra claim billed on the invoice.
+type claimLine struct {
+	Title       string  `json:"title"`
+	Description *string `json:"description"`
+	AmountCents int64   `json:"amount_cents"`
+}
+
 // invoiceData is the fully computed invoice, shared by the JSON and PDF renderers.
 type invoiceData struct {
 	UserID       string
@@ -41,7 +48,12 @@ type invoiceData struct {
 	Lines        []invoiceLine
 	TotalSeconds int
 	TotalCents   int64
-	GeneratedAt  time.Time
+	// Approved extra claims dated within the invoice range, and their sum.
+	Claims      []claimLine
+	ClaimsCents int64
+	// GrandTotalCents is the amount actually due: TotalCents (time) + ClaimsCents.
+	GrandTotalCents int64
+	GeneratedAt     time.Time
 	// Locked is true when TotalCents was taken from an approved timesheet's
 	// frozen total_billable_cents rather than recomputed from current logs/rates.
 	Locked bool
@@ -174,6 +186,36 @@ func (h *InvoiceHandler) build(r *http.Request, userID, fromStr, toStr string, l
 		}
 	}
 
+	// ── approved extra claims dated within the range ─────────────────────────
+	// Org-scoped for non-god as defence-in-depth (god is cross-org).
+	claimArgs := []any{userID, d.From, d.To}
+	cOrg := ""
+	if !mw.IsGod(r) {
+		claimArgs = append(claimArgs, mw.OrgID(r))
+		cOrg = " AND org_id=$4"
+	}
+	claimRows, err := h.db.Query(ctx,
+		`SELECT title, description, amount_cents
+		 FROM claims
+		 WHERE user_id=$1 AND status='approved'
+		   AND created_at::date BETWEEN $2::date AND $3::date`+cOrg+`
+		 ORDER BY created_at ASC`,
+		claimArgs...,
+	)
+	if err == nil {
+		defer claimRows.Close()
+		for claimRows.Next() {
+			var cl claimLine
+			if err := claimRows.Scan(&cl.Title, &cl.Description, &cl.AmountCents); err != nil {
+				continue
+			}
+			d.Claims = append(d.Claims, cl)
+			d.ClaimsCents += cl.AmountCents
+		}
+	}
+
+	d.GrandTotalCents = d.TotalCents + d.ClaimsCents
+
 	return d, http.StatusOK, nil
 }
 
@@ -188,18 +230,25 @@ func (h *InvoiceHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	claims := d.Claims
+	if claims == nil {
+		claims = []claimLine{}
+	}
 	resp := map[string]any{
-		"user_id":       d.UserID,
-		"email":         d.Email,
-		"full_name":     d.FullName,
-		"from":          d.From,
-		"to":            d.To,
-		"currency":      d.Currency,
-		"line_items":    d.Lines,
-		"total_seconds": d.TotalSeconds,
-		"total_cents":   d.TotalCents,
-		"locked":        d.Locked,
-		"generated_at":  d.GeneratedAt,
+		"user_id":           d.UserID,
+		"email":             d.Email,
+		"full_name":         d.FullName,
+		"from":              d.From,
+		"to":                d.To,
+		"currency":          d.Currency,
+		"line_items":        d.Lines,
+		"total_seconds":     d.TotalSeconds,
+		"total_cents":       d.TotalCents,
+		"claims":            claims,
+		"claims_cents":      d.ClaimsCents,
+		"grand_total_cents": d.GrandTotalCents,
+		"locked":            d.Locked,
+		"generated_at":      d.GeneratedAt,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)

@@ -96,14 +96,15 @@ func main() {
 	appCatH := handlers.NewAppCategoryHandler(pool)
 	timesheetH := handlers.NewTimesheetHandler(pool)
 	previewH := handlers.NewTimesheetPreviewHandler(pool)
+	claimH := handlers.NewClaimHandler(pool)
 
 	r := chi.NewRouter()
 	r.Use(chiMiddleware.Logger)
 	r.Use(chiMiddleware.Recoverer)
 	allowedOrigins := []string{
-		"http://localhost:5173",  // web dashboard dev
-		"http://localhost:1420",  // Tauri desktop dev (Vite)
-		"tauri://localhost",      // Tauri desktop production (Windows/Linux)
+		"http://localhost:5173",   // web dashboard dev
+		"http://localhost:1420",   // Tauri desktop dev (Vite)
+		"tauri://localhost",       // Tauri desktop production (Windows/Linux)
 		"https://tauri.localhost", // Tauri desktop production (macOS/some Linux)
 	}
 	if origin := os.Getenv("CORS_ORIGIN"); origin != "" {
@@ -184,6 +185,7 @@ func main() {
 		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/require-notes", userH.SetRequireNotes)
 		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/rate", userH.SetRate)
 		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/name", userH.SetName)
+		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/breaks", userH.SetBreaks)
 		r.With(mw.RequireRole(models.RoleEmployer)).Delete("/users/{id}/org", userH.Release)
 
 		// App categories — employer tags app names as productive/neutral/unproductive
@@ -199,6 +201,13 @@ func main() {
 		r.With(mw.RequireRole(models.RoleEmployer)).Post("/timesheets/{id}/approve", timesheetH.Approve)
 		r.With(mw.RequireRole(models.RoleEmployer)).Post("/timesheets/{id}/reject", timesheetH.Reject)
 		r.With(mw.RequireRole(models.RoleEmployer)).Get("/timesheet-preview", previewH.Get)
+
+		// Extra claims — employees raise reimbursement claims; employers approve/reject.
+		r.Get("/claims", claimH.List)
+		r.Post("/claims", claimH.Create)
+		r.Delete("/claims/{id}", claimH.Delete)
+		r.With(mw.RequireRole(models.RoleEmployer)).Post("/claims/{id}/approve", claimH.Approve)
+		r.With(mw.RequireRole(models.RoleEmployer)).Post("/claims/{id}/reject", claimH.Reject)
 
 		// God super-admin — cross-organization administration
 		r.With(mw.RequireGod).Get("/admin/orgs", adminH.ListOrgs)

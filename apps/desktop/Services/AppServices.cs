@@ -19,6 +19,7 @@ public sealed class AppServices : IDisposable
     public PolicyState Policy { get; }
     public TrackerService Tracker { get; }
     public SyncService Sync { get; }
+    public SleepInhibitor SleepInhibitor { get; }
 
     public AppServices()
     {
@@ -34,6 +35,16 @@ public sealed class AppServices : IDisposable
         Policy = new PolicyState();
         Tracker = new TrackerService(Db, Config, Activity, Uploader, Auth, Policy);
         Sync = new SyncService(Db, Auth, Api, Config, Policy);
+
+        // Keep the machine awake while tracking is actively running.
+        SleepInhibitor = new SleepInhibitor();
+        Tracker.RunningChanged += () =>
+        {
+            if (Tracker.Running)
+                SleepInhibitor.Inhibit();
+            else
+                SleepInhibitor.Release();
+        };
     }
 
     /// <summary>
@@ -64,5 +75,9 @@ public sealed class AppServices : IDisposable
         return Db.ClearAll();
     }
 
-    public void Dispose() => Db.Dispose();
+    public void Dispose()
+    {
+        SleepInhibitor.Dispose();
+        Db.Dispose();
+    }
 }

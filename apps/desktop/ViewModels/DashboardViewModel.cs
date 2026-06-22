@@ -51,6 +51,15 @@ public partial class DashboardViewModel : ViewModelBase
     /// captured interval — drives the asterisk hint and the "Notes required" tooltip.</summary>
     [ObservableProperty] private bool _requireNotes;
 
+    // Break controls — only shown when the employer allows breaks.
+    [ObservableProperty] private bool _breaksEnabled;
+    [ObservableProperty] private bool _onBreak;
+    [ObservableProperty] private bool _canTakeBreak;
+    [ObservableProperty] private string _breakCountdown = "";
+    [ObservableProperty] private string? _breakStatus;
+
+    private DispatcherTimer? _breakTimer;
+
     public ObservableCollection<IntervalItemViewModel> Intervals { get; } = new();
     public ObservableCollection<Project> Projects { get; } = new();
 
@@ -63,20 +72,79 @@ public partial class DashboardViewModel : ViewModelBase
         WorkingNotes = _services.Tracker.WorkingNotes;
         // The background policy poll may change manual-time permission or the set of
         // assigned projects (incl. rate edits) — react on the UI thread.
+        BreaksEnabled = _services.Policy.BreaksEnabled;
         _services.Policy.Changed += () => Dispatcher.UIThread.Post(OnPolicyChanged);
         // The tracker may clear manual mode itself (e.g. permission revoked) — keep
         // the toggle in sync.
         _services.Tracker.ManualModeChanged += () =>
             Dispatcher.UIThread.Post(() => ManualMode = _services.Tracker.ManualMode);
+        // The tracker drives break start/end (incl. auto-resume) — reflect it.
+        _services.Tracker.BreakChanged += () =>
+            Dispatcher.UIThread.Post(OnBreakChanged);
     }
 
     private void OnPolicyChanged()
     {
         AllowManualTime = _services.Policy.AllowManualTime;
         RequireNotes = _services.Policy.RequireNotes;
+        BreaksEnabled = _services.Policy.BreaksEnabled;
         ManualMode = _services.Tracker.ManualMode;
         _ = LoadProjectsAsync();
     }
+
+    private void OnBreakChanged()
+    {
+        OnBreak = _services.Tracker.OnBreak;
+        if (OnBreak)
+        {
+            BreakStatus = null;
+            _breakTimer ??= CreateBreakTimer();
+            _breakTimer.Start();
+            UpdateBreakCountdown();
+        }
+        else
+        {
+            _breakTimer?.Stop();
+            BreakCountdown = "";
+        }
+        _ = RefreshStatusAsync();
+    }
+
+    private DispatcherTimer CreateBreakTimer()
+    {
+        var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        t.Tick += (_, _) => UpdateBreakCountdown();
+        return t;
+    }
+
+    private void UpdateBreakCountdown()
+    {
+        var ends = _services.Tracker.BreakEndsUtc;
+        if (!_services.Tracker.OnBreak || ends is null)
+        {
+            BreakCountdown = "";
+            _breakTimer?.Stop();
+            return;
+        }
+        var remaining = ends.Value - DateTimeOffset.UtcNow;
+        if (remaining < TimeSpan.Zero)
+            remaining = TimeSpan.Zero;
+        BreakCountdown = $"{(int)remaining.TotalMinutes:00}:{remaining.Seconds:00}";
+    }
+
+    /// <summary>Start an employer-allowed break (pauses tracking, auto-resumes).</summary>
+    [RelayCommand]
+    private void TakeBreak()
+    {
+        BreakStatus = null;
+        var err = _services.Tracker.StartBreak();
+        if (err != null)
+            BreakStatus = err;
+    }
+
+    /// <summary>End the current break early and resume tracking.</summary>
+    [RelayCommand]
+    private void EndBreak() => _services.Tracker.EndBreak();
 
     partial void OnManualModeChanged(bool value)
     {
@@ -210,18 +278,24 @@ public partial class DashboardViewModel : ViewModelBase
         var status = await Task.Run(() => _services.Tracker.Status());
         long intervalSecs = _services.Config.Current.CaptureIntervalSecs;
 
-        StatusLabel = !status.Running
+        StatusLabel = status.OnBreak ? "On Break"
+            : !status.Running
             ? (status.PausedByIdle ? "Auto-paused (idle)" : "Stopped")
             : status.Manual ? "Manual Tracking"
             : status.IsIdle ? "Idle"
             : "Tracking";
-        StatusBrush = !status.Running
+        StatusBrush = status.OnBreak
+            ? new SolidColorBrush(Color.Parse("#60a5fa"))      // blue: on break
+            : !status.Running
             ? (status.PausedByIdle
                 ? new SolidColorBrush(Color.Parse("#facc15"))  // yellow: auto-paused by idle
                 : new SolidColorBrush(Color.Parse("#f87171"))) // red: manually stopped
             : status.Manual || status.IsIdle
                 ? new SolidColorBrush(Color.Parse("#facc15"))  // yellow: manual or skipping idle
                 : new SolidColorBrush(Color.Parse("#4ade80")); // green: actively tracking
+
+        OnBreak = status.OnBreak;
+        CanTakeBreak = _services.Tracker.CanTakeBreak;
 
         IntervalsToday = status.IntervalsToday;
         PendingUploads = status.PendingUploads;

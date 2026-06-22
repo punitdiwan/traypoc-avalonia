@@ -128,6 +128,9 @@ public partial class App : Application
     {
         if (_services is null)
             return;
+        // While on a break the timer is locked — only "End break" resumes tracking.
+        if (_services.Tracker.OnBreak)
+            return;
         if (_services.Tracker.Running)
             _services.Tracker.Stop();
         else

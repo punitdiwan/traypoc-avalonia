@@ -671,6 +671,12 @@ function EditEmployeeModal({ emp, currency, onClose }: { emp: User; currency: st
   const [rateDraft, setRateDraft] = useState(emp.hourly_rate_cents ? String(emp.hourly_rate_cents / 100) : "");
   const [saving, setSaving] = useState(false);
 
+  // Break policy drafts (saved together via "Save changes").
+  const [breaksEnabled, setBreaksEnabled] = useState(emp.breaks_enabled);
+  const [breakDuration, setBreakDuration] = useState(String(emp.break_duration_minutes || 15));
+  const [breaksPerDay, setBreaksPerDay] = useState(String(emp.breaks_per_day || 0));
+  const [breakDailyMinutes, setBreakDailyMinutes] = useState(String(emp.break_daily_minutes || 0));
+
   // Close on Escape.
   const backdropRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -721,6 +727,31 @@ function EditEmployeeModal({ emp, currency, onClose }: { emp: User; currency: st
       const tasks: Promise<unknown>[] = [];
       if (normalized !== emp.full_name) tasks.push(usersApi.setName(emp.id, normalized));
       if (cents !== emp.hourly_rate_cents) tasks.push(usersApi.setRate(emp.id, cents));
+
+      const dur = Math.max(0, parseInt(breakDuration, 10) || 0);
+      const perDay = Math.max(0, parseInt(breaksPerDay, 10) || 0);
+      const dailyMin = Math.max(0, parseInt(breakDailyMinutes, 10) || 0);
+      if (breaksEnabled && dur <= 0) {
+        addToast("Break duration must be greater than 0", "error");
+        setSaving(false);
+        return;
+      }
+      const breaksChanged =
+        breaksEnabled !== emp.breaks_enabled ||
+        dur !== emp.break_duration_minutes ||
+        perDay !== emp.breaks_per_day ||
+        dailyMin !== emp.break_daily_minutes;
+      if (breaksChanged) {
+        tasks.push(
+          usersApi.setBreaks(emp.id, {
+            breaks_enabled: breaksEnabled,
+            break_duration_minutes: dur,
+            breaks_per_day: perDay,
+            break_daily_minutes: dailyMin,
+          })
+        );
+      }
+
       await Promise.all(tasks);
       qc.invalidateQueries({ queryKey: ["employees"] });
       if (tasks.length > 0) addToast("Employee updated");
@@ -839,6 +870,50 @@ function EditEmployeeModal({ emp, currency, onClose }: { emp: User; currency: st
               onChange={(v) => requireNotesMutation.mutate(v)}
               color="amber"
             />
+          </div>
+
+          {/* Breaks */}
+          <div className="px-6 py-5 border-b border-gray-100 dark:border-gray-800">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">Breaks</p>
+            <Toggle
+              label="Allow breaks"
+              description="Employee can pause tracking for a fixed break; it auto-resumes when time is up."
+              checked={breaksEnabled}
+              onChange={setBreaksEnabled}
+            />
+            {breaksEnabled && (
+              <div className="grid grid-cols-3 gap-3 pt-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Duration (min)</label>
+                  <input
+                    type="number" min="1"
+                    value={breakDuration}
+                    onChange={(e) => setBreakDuration(e.target.value)}
+                    className={inputClass + " w-full"}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Breaks / day</label>
+                  <input
+                    type="number" min="0"
+                    value={breaksPerDay}
+                    onChange={(e) => setBreaksPerDay(e.target.value)}
+                    className={inputClass + " w-full"}
+                  />
+                  <p className="text-[10px] text-gray-400 mt-1">0 = unlimited</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Daily total (min)</label>
+                  <input
+                    type="number" min="0"
+                    value={breakDailyMinutes}
+                    onChange={(e) => setBreakDailyMinutes(e.target.value)}
+                    className={inputClass + " w-full"}
+                  />
+                  <p className="text-[10px] text-gray-400 mt-1">0 = unlimited</p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Danger zone */}

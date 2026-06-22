@@ -178,6 +178,35 @@ CREATE TABLE IF NOT EXISTS timesheets (
 CREATE INDEX IF NOT EXISTS timesheets_org_week ON timesheets(org_id, week_start DESC);
 CREATE INDEX IF NOT EXISTS timesheets_status   ON timesheets(status) WHERE status = 'submitted';
 ALTER TABLE timesheets ADD COLUMN IF NOT EXISTS total_billable_cents BIGINT NOT NULL DEFAULT 0;
+
+-- Break policy (per employee, employer-controlled). Surfaced via GET /me/policy so
+-- the desktop knows whether breaks are allowed and for how long. breaks_per_day /
+-- break_daily_minutes of 0 mean "unlimited".
+ALTER TABLE users ADD COLUMN IF NOT EXISTS breaks_enabled         BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS break_duration_minutes INTEGER NOT NULL DEFAULT 15;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS breaks_per_day         INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS break_daily_minutes    INTEGER NOT NULL DEFAULT 0;
+
+-- Extra Claims: reimbursement claims an employee raises (title, optional
+-- description, money amount, supporting documents). status: pending → approved |
+-- rejected. Approved claims dated within an invoice's range are billed on it.
+-- documents is a JSON array of {name, url, content_type}.
+CREATE TABLE IF NOT EXISTS claims (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    org_id        UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    title         TEXT NOT NULL,
+    description   TEXT,
+    amount_cents  BIGINT NOT NULL DEFAULT 0,
+    status        TEXT NOT NULL DEFAULT 'pending',
+    documents     JSONB NOT NULL DEFAULT '[]',
+    employer_note TEXT,
+    reviewed_at   TIMESTAMPTZ,
+    reviewed_by   UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS claims_org_status ON claims(org_id, status);
+CREATE INDEX IF NOT EXISTS claims_user ON claims(user_id, created_at DESC);
 `
 
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {

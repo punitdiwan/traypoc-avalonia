@@ -54,6 +54,13 @@ public sealed class PolicyResult
     /// <summary>When true, the employee must provide non-empty working notes on
     /// every interval. Enforced server-side; gated client-side for fast feedback.</summary>
     public bool RequireNotes { get; set; }
+    /// <summary>Break policy controlled by the employer. When breaks are enabled the
+    /// employee can pause tracking for <see cref="BreakDurationMinutes"/>; tracking
+    /// auto-resumes when it elapses. Per-day / daily-minute caps of 0 mean unlimited.</summary>
+    public bool BreaksEnabled { get; set; }
+    public int BreakDurationMinutes { get; set; }
+    public int BreaksPerDay { get; set; }
+    public int BreakDailyMinutes { get; set; }
     public List<Project> Projects { get; set; } = new();
 }
 

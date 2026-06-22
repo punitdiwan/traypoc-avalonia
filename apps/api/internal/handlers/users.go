@@ -34,12 +34,12 @@ func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 	)
 	if mw.IsGod(r) {
 		rows, err = h.db.Query(r.Context(),
-			`SELECT u.id, u.email, u.full_name, u.role, u.can_track, u.allow_manual_time, u.allow_delete, u.require_notes, u.hourly_rate_cents, u.created_at, COALESCE(o.name, '') as org_name
+			`SELECT u.id, u.email, u.full_name, u.role, u.can_track, u.allow_manual_time, u.allow_delete, u.require_notes, u.hourly_rate_cents, u.breaks_enabled, u.break_duration_minutes, u.breaks_per_day, u.break_daily_minutes, u.created_at, COALESCE(o.name, '') as org_name
 			 FROM users u LEFT JOIN organizations o ON o.id = u.org_id
 			 WHERE u.role='employee' ORDER BY o.name NULLS LAST, u.created_at DESC`)
 	} else {
 		rows, err = h.db.Query(r.Context(),
-			`SELECT u.id, u.email, u.full_name, u.role, u.can_track, u.allow_manual_time, u.allow_delete, u.require_notes, u.hourly_rate_cents, u.created_at, COALESCE(o.name, '') as org_name
+			`SELECT u.id, u.email, u.full_name, u.role, u.can_track, u.allow_manual_time, u.allow_delete, u.require_notes, u.hourly_rate_cents, u.breaks_enabled, u.break_duration_minutes, u.breaks_per_day, u.break_daily_minutes, u.created_at, COALESCE(o.name, '') as org_name
 			 FROM users u LEFT JOIN organizations o ON o.id = u.org_id
 			 WHERE u.role='employee' AND u.org_id=$1 ORDER BY u.created_at DESC`,
 			mw.OrgID(r),
@@ -54,7 +54,7 @@ func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 	var users []models.User
 	for rows.Next() {
 		var u models.User
-		if err := rows.Scan(&u.ID, &u.Email, &u.FullName, &u.Role, &u.CanTrack, &u.AllowManualTime, &u.AllowDelete, &u.RequireNotes, &u.HourlyRateCents, &u.CreatedAt, &u.OrgName); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.FullName, &u.Role, &u.CanTrack, &u.AllowManualTime, &u.AllowDelete, &u.RequireNotes, &u.HourlyRateCents, &u.BreaksEnabled, &u.BreakDurationMinutes, &u.BreaksPerDay, &u.BreakDailyMinutes, &u.CreatedAt, &u.OrgName); err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -380,6 +380,52 @@ func (h *UserHandler) SetName(w http.ResponseWriter, r *http.Request) {
 	tag, err := h.execScopedUserUpdate(r,
 		`UPDATE users SET full_name=$1 WHERE id=$2 AND role='employee'`,
 		name, userID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		http.Error(w, "employee not found", http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// SetBreaks sets the per-employee break policy (employer-only, scoped to their org).
+// per_day / daily_minutes of 0 mean unlimited.
+func (h *UserHandler) SetBreaks(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	userID, err := uuid.Parse(idStr)
+	if err != nil {
+		http.Error(w, "invalid user id", http.StatusBadRequest)
+		return
+	}
+
+	var body struct {
+		BreaksEnabled        bool `json:"breaks_enabled"`
+		BreakDurationMinutes int  `json:"break_duration_minutes"`
+		BreaksPerDay         int  `json:"breaks_per_day"`
+		BreakDailyMinutes    int  `json:"break_daily_minutes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	if body.BreakDurationMinutes < 0 || body.BreaksPerDay < 0 || body.BreakDailyMinutes < 0 {
+		http.Error(w, "break values must be non-negative", http.StatusBadRequest)
+		return
+	}
+	// A break must have a positive duration to be usable.
+	if body.BreaksEnabled && body.BreakDurationMinutes <= 0 {
+		http.Error(w, "break_duration_minutes must be greater than 0", http.StatusBadRequest)
+		return
+	}
+
+	tag, err := h.execScopedUserUpdate(r,
+		`UPDATE users SET breaks_enabled=$1, break_duration_minutes=$2,
+		 breaks_per_day=$3, break_daily_minutes=$4 WHERE id=$5 AND role='employee'`,
+		body.BreaksEnabled, body.BreakDurationMinutes, body.BreaksPerDay, body.BreakDailyMinutes, userID)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return

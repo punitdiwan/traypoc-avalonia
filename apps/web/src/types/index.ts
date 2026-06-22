@@ -10,6 +10,10 @@ export interface User {
   allow_delete: boolean;
   require_notes: boolean;
   hourly_rate_cents: number;
+  breaks_enabled: boolean;
+  break_duration_minutes: number;
+  breaks_per_day: number;
+  break_daily_minutes: number;
   org_id: string | null;
   org_name?: string;
 }
@@ -210,6 +214,12 @@ export interface InvoiceLine {
   amount_cents: number;
 }
 
+export interface InvoiceClaim {
+  title: string;
+  description: string | null;
+  amount_cents: number;
+}
+
 export interface InvoiceResponse {
   user_id: string;
   email: string;
@@ -220,7 +230,37 @@ export interface InvoiceResponse {
   line_items: InvoiceLine[];
   total_seconds: number;
   total_cents: number;
+  /** Approved extra claims dated within the range, and their sum. */
+  claims: InvoiceClaim[];
+  claims_cents: number;
+  /** total_cents (time) + claims_cents — the amount actually due. */
+  grand_total_cents: number;
   /** true when total_cents is the frozen amount from an approved timesheet. */
   locked: boolean;
   generated_at: string;
+}
+
+export type ClaimStatus = "pending" | "approved" | "rejected";
+
+export interface ClaimDocument {
+  name: string;
+  url: string;
+  content_type: string;
+}
+
+export interface Claim {
+  id: string;
+  user_id: string;
+  user_email: string;
+  user_full_name: string;
+  org_id: string;
+  title: string;
+  description: string | null;
+  amount_cents: number;
+  status: ClaimStatus;
+  documents: ClaimDocument[];
+  employer_note: string | null;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  created_at: string;
 }

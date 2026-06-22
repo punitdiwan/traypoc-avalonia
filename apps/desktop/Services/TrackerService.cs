@@ -31,6 +31,11 @@ public sealed class TrackerService
     // True when tracking was auto-stopped because idle time exceeded the threshold.
     // An idle watcher task polls until the user becomes active and then resumes.
     private volatile bool _pausedByIdle;
+    // True while the employee is on an employer-allowed break: capture is paused and
+    // a watcher resumes tracking when the allotted time elapses.
+    private volatile bool _onBreak;
+    private volatile bool _pausedByBreak;
+    private DateTimeOffset? _breakEndsUtc;
     private CancellationTokenSource? _cts;
     private readonly object _startLock = new();
 
@@ -49,6 +54,10 @@ public sealed class TrackerService
     /// <summary>Raised when working notes change (drives the Start gate when notes
     /// are required).</summary>
     public event Action? NotesChanged;
+
+    /// <summary>Raised when the break state starts or ends, so the UI can update the
+    /// "On Break" indicator and countdown.</summary>
+    public event Action? BreakChanged;
 
     private volatile string? _selectedProjectId;
     private volatile bool _manualMode;
@@ -148,6 +157,86 @@ public sealed class TrackerService
 
     public bool Running => _running;
 
+    /// <summary>True while the employee is on a break (capture paused, auto-resume pending).</summary>
+    public bool OnBreak => _onBreak;
+
+    /// <summary>When the current break ends (UTC), or null when not on a break.</summary>
+    public DateTimeOffset? BreakEndsUtc => _breakEndsUtc;
+
+    /// <summary>True when the employer allows breaks and tracking is currently running,
+    /// so the "Take a break" action is offerable. Per-day limits are checked in
+    /// <see cref="StartBreak"/> (which returns a message when a cap is reached).</summary>
+    public bool CanTakeBreak => _policy.BreaksEnabled && _running && !_onBreak;
+
+    /// <summary>Begin a break: pause capture and schedule auto-resume after the
+    /// employer-allotted duration (clamped to any remaining daily allowance).
+    /// Returns null on success, or a human message when a limit blocks the break.</summary>
+    public string? StartBreak()
+    {
+        if (!_policy.BreaksEnabled)
+            return "Breaks aren't enabled for your account.";
+        if (_onBreak)
+            return null;
+        if (!_running)
+            return "Start tracking before taking a break.";
+
+        int durationMin = Math.Max(1, _policy.BreakDurationMinutes);
+        long allowedSecs = durationMin * 60L;
+
+        int perDay = _policy.BreaksPerDay;
+        if (perDay > 0 && _db.BreakCountToday() >= perDay)
+            return "You've used all your breaks for today.";
+
+        int dailyMin = _policy.BreakDailyMinutes;
+        if (dailyMin > 0)
+        {
+            long remaining = dailyMin * 60L - _db.BreakSecondsToday();
+            if (remaining <= 0)
+                return "You've used all your break time for today.";
+            allowedSecs = Math.Min(allowedSecs, remaining);
+        }
+
+        _onBreak = true;
+        _pausedByBreak = true;
+        _breakEndsUtc = DateTimeOffset.UtcNow.AddSeconds(allowedSecs);
+        _db.InsertBreak(allowedSecs);
+        StopInternal();            // stop capturing (remembered via _pausedByBreak)
+        SetTooltip?.Invoke("Time Tracker — On Break");
+        _ = Task.Run(BreakWatcherAsync);
+        BreakChanged?.Invoke();
+        return null;
+    }
+
+    /// <summary>End the current break immediately and resume tracking.</summary>
+    public void EndBreak() => EndBreakInternal(resume: true);
+
+    private void EndBreakInternal(bool resume)
+    {
+        if (!_onBreak)
+            return;
+        _onBreak = false;
+        _pausedByBreak = false;
+        _breakEndsUtc = null;
+        BreakChanged?.Invoke();
+        if (resume)
+            Start(); // guarded by CanStart (no-op if e.g. the employer paused tracking)
+    }
+
+    /// <summary>Polls each second while on break; resumes tracking when the allotted
+    /// time elapses. Exits early if the break was ended by hand or by Stop().</summary>
+    private async Task BreakWatcherAsync()
+    {
+        while (_onBreak && _pausedByBreak)
+        {
+            await Task.Delay(1000);
+            if (_onBreak && _pausedByBreak && _breakEndsUtc is { } end && DateTimeOffset.UtcNow >= end)
+            {
+                EndBreakInternal(resume: true);
+                break;
+            }
+        }
+    }
+
     public void Start()
     {
         lock (_startLock)
@@ -172,7 +261,13 @@ public sealed class TrackerService
     {
         _pausedByPolicy = false;
         _pausedByIdle = false;
+        bool wasOnBreak = _onBreak;
+        _pausedByBreak = false;
+        _onBreak = false;
+        _breakEndsUtc = null;
         StopInternal();
+        if (wasOnBreak)
+            BreakChanged?.Invoke();
     }
 
     private void StopInternal()
@@ -200,6 +295,8 @@ public sealed class TrackerService
             IdleSecs = _activity.IdleSecs(),
             Manual = _running && _manualMode,
             PausedByIdle = _pausedByIdle,
+            OnBreak = _onBreak,
+            BreakEndsUtc = _breakEndsUtc,
         };
     }
 

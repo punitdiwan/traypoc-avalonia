@@ -14,6 +14,7 @@ import AdminPage from "./pages/AdminPage";
 import DiaryPage from "./pages/DiaryPage";
 import ReportsPage from "./pages/ReportsPage";
 import InvoicePage from "./pages/InvoicePage";
+import ClaimsPage from "./pages/ClaimsPage";
 import EmployeeDashboard from "./pages/EmployeeDashboard";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ToastContainer from "./components/ToastContainer";
@@ -63,6 +64,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             {/* Own diary for employees; any org employee for employer/god. */}
             <Route path="/diary/:userId" element={<DiaryPage />} />
             <Route path="/timesheets" element={<TimesheetsPage />} />
+            <Route path="/claims" element={<ClaimsPage />} />
             {/* Invoice: employees may view their own; the API enforces ownership. */}
             <Route path="/invoice/:userId" element={<InvoicePage />} />
             <Route element={<RequireEmployer />}>

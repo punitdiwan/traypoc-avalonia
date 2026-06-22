@@ -1,5 +1,7 @@
 import type {
   AppSeen,
+  Claim,
+  ClaimDocument,
   DiaryResponse,
   InvoiceResponse,
   OrgSummary,
@@ -226,6 +228,20 @@ export const usersApi = {
       method: "PATCH",
       body: JSON.stringify({ hourly_rate_cents: hourlyRateCents }),
     }),
+  // Set the per-employee break policy (employer-only).
+  setBreaks: (
+    userId: string,
+    breaks: {
+      breaks_enabled: boolean;
+      break_duration_minutes: number;
+      breaks_per_day: number;
+      break_daily_minutes: number;
+    }
+  ) =>
+    request<void>(`/users/${userId}/breaks`, {
+      method: "PATCH",
+      body: JSON.stringify(breaks),
+    }),
   // Rename an employee in the caller's organization.
   setName: (userId: string, fullName: string) =>
     request<void>(`/users/${userId}/name`, {
@@ -366,4 +382,83 @@ export const timesheetsApi = {
     request<import("../types").TimesheetPreview>(
       `/timesheet-preview?user_id=${userId}&from=${from}&to=${to}`
     ),
+};
+
+// Presigned uploads — used by Claims to push documents straight to Spaces.
+interface PresignSlot {
+  key: string;
+  put_url: string;
+  public_url: string;
+  headers: Record<string, string>;
+}
+
+export const uploadsApi = {
+  presign: (files: { key: string; content_type: string }[]) =>
+    request<{ uploads: PresignSlot[] }>("/uploads/presign", {
+      method: "POST",
+      body: JSON.stringify({ files }),
+    }),
+};
+
+// Upload a single file to a presigned PUT URL (direct to Spaces, not the API).
+async function putToSpaces(slot: PresignSlot, file: File): Promise<void> {
+  const res = await fetch(slot.put_url, {
+    method: "PUT",
+    headers: slot.headers,
+    body: file,
+  });
+  if (!res.ok) throw new Error(`Upload failed (${res.status})`);
+}
+
+// Upload claim documents and return their stored references. Each file gets a
+// unique key under the caller's prefix; the API content-type is inferred from
+// the extension (png/jpg/pdf).
+export async function uploadClaimDocuments(files: File[]): Promise<ClaimDocument[]> {
+  if (files.length === 0) return [];
+  const specs = files.map((f) => {
+    const ext = f.name.split(".").pop()?.toLowerCase() || "bin";
+    const rand = Math.random().toString(36).slice(2, 10);
+    return {
+      key: `claims/${Date.now()}-${rand}.${ext}`,
+      content_type: f.type || "",
+    };
+  });
+  const { uploads } = await uploadsApi.presign(specs);
+  await Promise.all(uploads.map((slot, i) => putToSpaces(slot, files[i])));
+  return uploads.map((slot, i) => ({
+    name: files[i].name,
+    url: slot.public_url,
+    content_type: slot.headers["Content-Type"] || files[i].type || "",
+  }));
+}
+
+// Extra claims — employees raise reimbursement claims; employers approve/reject.
+export const claimsApi = {
+  list: () => request<Claim[]>("/claims"),
+  create: (input: {
+    title: string;
+    description?: string;
+    amount_cents: number;
+    documents: ClaimDocument[];
+  }) =>
+    request<Claim>("/claims", {
+      method: "POST",
+      body: JSON.stringify({
+        title: input.title,
+        description: input.description ?? null,
+        amount_cents: input.amount_cents,
+        documents: input.documents,
+      }),
+    }),
+  remove: (id: string) => request<void>(`/claims/${id}`, { method: "DELETE" }),
+  approve: (id: string, employerNote?: string) =>
+    request<void>(`/claims/${id}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ employer_note: employerNote ?? null }),
+    }),
+  reject: (id: string, employerNote: string) =>
+    request<void>(`/claims/${id}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ employer_note: employerNote }),
+    }),
 };

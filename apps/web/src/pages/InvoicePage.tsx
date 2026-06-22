@@ -157,6 +157,30 @@ export default function InvoicePage() {
               </tbody>
             </table>
 
+            {/* Extra claims */}
+            {data.claims.length > 0 && (
+              <div className="mb-6">
+                <p className="text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-2">Extra Claims</p>
+                <table className="w-full text-sm">
+                  <tbody>
+                    {data.claims.map((c, i) => (
+                      <tr key={i} className="border-b border-gray-100 dark:border-gray-800/60">
+                        <td className="py-3 text-gray-900 dark:text-gray-100">
+                          {c.title}
+                          {c.description && (
+                            <span className="block text-xs text-gray-400 dark:text-gray-500">{c.description}</span>
+                          )}
+                        </td>
+                        <td className="py-3 text-right tabular-nums text-gray-900 dark:text-gray-100">
+                          {formatMoney(c.amount_cents, data.currency)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
             {/* Total */}
             <div className="flex justify-end">
               <div className="w-64">
@@ -164,13 +188,25 @@ export default function InvoicePage() {
                   <span>Total hours</span>
                   <span className="tabular-nums">{formatHours(data.total_seconds)}</span>
                 </div>
+                {data.claims_cents > 0 && (
+                  <>
+                    <div className="flex justify-between py-1 text-sm text-gray-500 dark:text-gray-400">
+                      <span>Time total</span>
+                      <span className="tabular-nums">{formatMoney(data.total_cents, data.currency)}</span>
+                    </div>
+                    <div className="flex justify-between py-1 text-sm text-gray-500 dark:text-gray-400">
+                      <span>Claims total</span>
+                      <span className="tabular-nums">{formatMoney(data.claims_cents, data.currency)}</span>
+                    </div>
+                  </>
+                )}
                 <div className="flex justify-between py-3 border-t border-gray-200 dark:border-gray-800 text-base font-semibold text-gray-900 dark:text-gray-100">
                   <span>Total due</span>
-                  <span className="tabular-nums">{formatMoney(data.total_cents, data.currency)}</span>
+                  <span className="tabular-nums">{formatMoney(data.grand_total_cents, data.currency)}</span>
                 </div>
                 {data.locked && (
                   <p className="text-right text-xs text-green-600 dark:text-green-400 italic">
-                    Locked at approval
+                    Time locked at approval
                   </p>
                 )}
               </div>

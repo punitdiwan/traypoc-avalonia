@@ -34,10 +34,14 @@ type policyProject struct {
 func (h *PolicyHandler) Get(w http.ResponseWriter, r *http.Request) {
 	userID := mw.UserID(r)
 
-	var canTrack, allowManual, requireNotes bool
+	var canTrack, allowManual, requireNotes, breaksEnabled bool
+	var breakDuration, breaksPerDay, breakDailyMinutes int
 	if err := h.db.QueryRow(r.Context(),
-		`SELECT can_track, allow_manual_time, require_notes FROM users WHERE id=$1`, userID,
-	).Scan(&canTrack, &allowManual, &requireNotes); err != nil {
+		`SELECT can_track, allow_manual_time, require_notes,
+		        breaks_enabled, break_duration_minutes, breaks_per_day, break_daily_minutes
+		 FROM users WHERE id=$1`, userID,
+	).Scan(&canTrack, &allowManual, &requireNotes,
+		&breaksEnabled, &breakDuration, &breaksPerDay, &breakDailyMinutes); err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
@@ -85,9 +89,13 @@ func (h *PolicyHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"can_track":         canTrack,
-		"allow_manual_time": allowManual,
-		"require_notes":     requireNotes,
-		"projects":          projects,
+		"can_track":              canTrack,
+		"allow_manual_time":      allowManual,
+		"require_notes":          requireNotes,
+		"breaks_enabled":         breaksEnabled,
+		"break_duration_minutes": breakDuration,
+		"breaks_per_day":         breaksPerDay,
+		"break_daily_minutes":    breakDailyMinutes,
+		"projects":               projects,
 	})
 }

@@ -30,7 +30,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool _isTracking;
 
     /// <summary>Whether the Start/Stop button is enabled — Stop is always allowed
-    /// while running; Start needs a project selected first.</summary>
+    /// while running; Start needs a project selected first. Locked while on a break
+    /// (only "End break" resumes tracking).</summary>
     [ObservableProperty] private bool _canToggleTracking;
 
     /// <summary>True when signed in but the employer has turned tracking off — drives
@@ -79,6 +80,9 @@ public partial class MainWindowViewModel : ViewModelBase
             Dispatcher.UIThread.Post(UpdateCanToggleTracking);
         services.Tracker.NotesChanged += () =>
             Dispatcher.UIThread.Post(UpdateCanToggleTracking);
+        // On break, the Start/Stop button is locked — only "End break" resumes tracking.
+        services.Tracker.BreakChanged += () =>
+            Dispatcher.UIThread.Post(UpdateCanToggleTracking);
         // Background policy poll → react on the UI thread (gate Start, show banner).
         services.Policy.Changed += () => Dispatcher.UIThread.Post(SyncPolicy);
 
@@ -92,7 +96,8 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     private void UpdateCanToggleTracking() =>
-        CanToggleTracking = _services.Tracker.Running || _services.Tracker.CanStart;
+        CanToggleTracking = !_services.Tracker.OnBreak
+            && (_services.Tracker.Running || _services.Tracker.CanStart);
 
     /// <summary>Reflect the latest polled policy: refresh the Start gate and surface
     /// the "tracking turned off by your organization" banner.</summary>

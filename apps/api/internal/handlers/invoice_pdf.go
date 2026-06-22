@@ -13,9 +13,9 @@ import (
 // green "PAID" stamp and banner are drawn.
 func renderInvoicePDF(d *invoiceData, paid bool) ([]byte, error) {
 	const (
-		marginL = 18.0
-		marginR = 18.0
-		pageW   = 210.0
+		marginL  = 18.0
+		marginR  = 18.0
+		pageW    = 210.0
 		contentW = pageW - marginL - marginR
 	)
 
@@ -115,6 +115,23 @@ func renderInvoicePDF(d *invoiceData, paid bool) ([]byte, error) {
 
 	pdf.Ln(4)
 
+	// ── extra claims (approved reimbursements) ───────────────────────────────
+	if len(d.Claims) > 0 {
+		pdf.SetFont("Helvetica", "B", 8)
+		pdf.SetFillColor(243, 244, 246) // gray-100
+		pdf.SetTextColor(107, 114, 128)
+		pdf.CellFormat(contentW-wAmount, 8, "EXTRA CLAIMS", "", 0, "L", true, 0, "")
+		pdf.CellFormat(wAmount, 8, "AMOUNT", "", 1, "R", true, 0, "")
+
+		pdf.SetFont("Helvetica", "", 10)
+		for _, cl := range d.Claims {
+			pdf.SetTextColor(31, 41, 55)
+			pdf.CellFormat(contentW-wAmount, 8, truncate(cl.Title, 60), "B", 0, "L", false, 0, "")
+			pdf.CellFormat(wAmount, 8, fmtPDFMoney(cl.AmountCents, d.Currency), "B", 1, "R", false, 0, "")
+		}
+		pdf.Ln(4)
+	}
+
 	// ── totals box (right-aligned) ───────────────────────────────────────────
 	boxW := wRate + wAmount
 	boxX := marginL + contentW - boxW
@@ -128,6 +145,23 @@ func renderInvoicePDF(d *invoiceData, paid bool) ([]byte, error) {
 	pdf.SetTextColor(31, 41, 55)
 	pdf.CellFormat(valueW, 7, fmtPDFHours(d.TotalSeconds), "", 1, "R", false, 0, "")
 
+	// Time subtotal + claims subtotal lines (only when there are claims).
+	if d.ClaimsCents > 0 {
+		pdf.SetX(boxX)
+		pdf.SetFont("Helvetica", "", 9)
+		pdf.SetTextColor(107, 114, 128)
+		pdf.CellFormat(labelW, 7, "Time total", "", 0, "L", false, 0, "")
+		pdf.SetTextColor(31, 41, 55)
+		pdf.CellFormat(valueW, 7, fmtPDFMoney(d.TotalCents, d.Currency), "", 1, "R", false, 0, "")
+
+		pdf.SetX(boxX)
+		pdf.SetFont("Helvetica", "", 9)
+		pdf.SetTextColor(107, 114, 128)
+		pdf.CellFormat(labelW, 7, "Claims total", "", 0, "L", false, 0, "")
+		pdf.SetTextColor(31, 41, 55)
+		pdf.CellFormat(valueW, 7, fmtPDFMoney(d.ClaimsCents, d.Currency), "", 1, "R", false, 0, "")
+	}
+
 	pdf.SetX(boxX)
 	pdf.SetLineWidth(0.3)
 	pdf.SetDrawColor(209, 213, 219)
@@ -138,7 +172,7 @@ func renderInvoicePDF(d *invoiceData, paid bool) ([]byte, error) {
 	pdf.SetFont("Helvetica", "B", 12)
 	pdf.SetTextColor(17, 24, 39)
 	pdf.CellFormat(labelW, 9, "Total due", "", 0, "L", false, 0, "")
-	pdf.CellFormat(valueW, 9, fmtPDFMoney(d.TotalCents, d.Currency), "", 1, "R", false, 0, "")
+	pdf.CellFormat(valueW, 9, fmtPDFMoney(d.GrandTotalCents, d.Currency), "", 1, "R", false, 0, "")
 
 	// "locked at approval" note — the total came from the frozen timesheet amount
 	if d.Locked {

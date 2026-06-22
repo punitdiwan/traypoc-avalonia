@@ -1,3 +1,5 @@
+using System;
+
 namespace TrayPoc.Models;
 
 /// <summary>Port of the Rust <c>IntervalRow</c> / TS <c>TimeInterval</c>.</summary>
@@ -39,4 +41,9 @@ public sealed class TrackerStatus
     /// <summary>True when tracking was automatically stopped because the user exceeded
     /// the idle auto-pause threshold. Cleared when tracking resumes.</summary>
     public bool PausedByIdle { get; set; }
+    /// <summary>True while the employee is on a break: capture is paused and tracking
+    /// auto-resumes at <see cref="BreakEndsUtc"/>.</summary>
+    public bool OnBreak { get; set; }
+    /// <summary>When the current break ends (UTC); null when not on a break.</summary>
+    public DateTimeOffset? BreakEndsUtc { get; set; }
 }

@@ -46,8 +46,14 @@ public sealed class Database : IDisposable
                 last_attempt TEXT,
                 FOREIGN KEY (interval_id) REFERENCES time_intervals(id) ON DELETE CASCADE
             );
+            CREATE TABLE IF NOT EXISTS breaks (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at    TEXT NOT NULL,
+                duration_secs INTEGER NOT NULL
+            );
             CREATE INDEX IF NOT EXISTS idx_intervals_start ON time_intervals(start_time);
             CREATE INDEX IF NOT EXISTS idx_intervals_synced ON time_intervals(synced);
+            CREATE INDEX IF NOT EXISTS idx_breaks_started ON breaks(started_at);
             """);
 
         // The project the interval was tracked against; added after the initial
@@ -167,6 +173,27 @@ public sealed class Database : IDisposable
 
     public long IntervalsTodayCount() =>
         ScalarLong("SELECT COUNT(*) FROM time_intervals WHERE DATE(start_time) = DATE('now')");
+
+    /// <summary>Record a break the employee took (timestamped in local time), for
+    /// per-day limit enforcement.</summary>
+    public void InsertBreak(long durationSecs)
+    {
+        lock (_lock)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "INSERT INTO breaks (started_at, duration_secs) VALUES (datetime('now','localtime'), $d)";
+            cmd.Parameters.AddWithValue("$d", durationSecs);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    /// <summary>Number of breaks taken today (local date, matching DATE('now','localtime')).</summary>
+    public long BreakCountToday() =>
+        ScalarLong("SELECT COUNT(*) FROM breaks WHERE DATE(started_at) = DATE('now','localtime')");
+
+    /// <summary>Total seconds of break time taken today (local date).</summary>
+    public long BreakSecondsToday() =>
+        ScalarLong("SELECT COALESCE(SUM(duration_secs),0) FROM breaks WHERE DATE(started_at) = DATE('now','localtime')");
 
     public string? LastCaptureTime()
     {

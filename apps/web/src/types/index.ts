@@ -240,6 +240,33 @@ export interface InvoiceResponse {
   generated_at: string;
 }
 
+export type CallStatus = "ringing" | "answered" | "ended" | "missed" | "rejected" | "failed";
+
+export interface Call {
+  id: string;
+  org_id: string;
+  caller_id: string;
+  callee_id: string;
+  caller_name?: string;
+  callee_name?: string;
+  status: CallStatus;
+  started_at: string;
+  answered_at: string | null;
+  ended_at: string | null;
+  duration_seconds: number;
+  recording_url?: string | null;
+}
+
+export interface Message {
+  id: string;
+  org_id: string;
+  sender_id: string;
+  recipient_id: string;
+  body: string;
+  created_at: string;
+  read_at: string | null;
+}
+
 export type ClaimStatus = "pending" | "approved" | "rejected";
 
 export interface ClaimDocument {

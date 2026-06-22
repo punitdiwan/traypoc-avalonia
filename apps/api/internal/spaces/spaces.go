@@ -88,6 +88,21 @@ func (c *Client) GenerateThumbnail(ctx context.Context, screenshotURL string) (s
 	return fmt.Sprintf("https://%s.%s.digitaloceanspaces.com/%s", c.bucket, c.region, thumbKey), nil
 }
 
+// PutBytes uploads raw bytes (e.g. a call recording) under key with public-read
+// ACL and returns the public URL. Used by the recorder bot.
+func (c *Client) PutBytes(ctx context.Context, key, contentType string, b []byte) (string, error) {
+	_, err := c.mc.PutObject(ctx, c.bucket, key, bytes.NewReader(b), int64(len(b)), minio.PutObjectOptions{
+		ContentType: contentType,
+		UserMetadata: map[string]string{
+			"x-amz-acl": "public-read",
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("upload object: %w", err)
+	}
+	return fmt.Sprintf("https://%s.%s.digitaloceanspaces.com/%s", c.bucket, c.region, key), nil
+}
+
 // PresignPut returns a short-lived presigned PUT URL for key, plus the public
 // URL the object will have once uploaded. The desktop uploads straight to the
 // PUT URL, so it never needs the Spaces credentials. "x-amz-acl: public-read"

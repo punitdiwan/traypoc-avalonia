@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import NavBar from "@/components/NavBar";
 import NameEditor from "@/components/NameEditor";
+import EmployeeComms from "@/components/EmployeeComms";
 import { Skeleton } from "@/components/Skeleton";
 import { appCategoriesApi, overviewApi, projectsApi, usersApi } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
@@ -502,6 +503,7 @@ function EmployeesSection({ currency }: { currency: string }) {
 
               {/* Actions */}
               <div className="flex items-center gap-3 shrink-0">
+                <EmployeeComms userId={emp.id} name={displayName(emp)} />
                 <Link
                   to={`/diary/${emp.id}`}
                   className="text-xs text-brand-600 dark:text-brand-400 hover:underline whitespace-nowrap"

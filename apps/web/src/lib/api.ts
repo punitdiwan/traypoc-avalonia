@@ -1,9 +1,11 @@
 import type {
   AppSeen,
+  Call,
   Claim,
   ClaimDocument,
   DiaryResponse,
   InvoiceResponse,
+  Message,
   OrgSummary,
   OverviewResponse,
   Project,
@@ -431,6 +433,32 @@ export async function uploadClaimDocuments(files: File[]): Promise<ClaimDocument
     content_type: slot.headers["Content-Type"] || files[i].type || "",
   }));
 }
+
+// ICE servers for WebRTC (STUN + short-lived TURN credentials).
+export interface IceServer {
+  urls: string[];
+  username?: string;
+  credential?: string;
+}
+
+export const callsApi = {
+  // Call history (employer: any org member or ?user_id; employee: own).
+  list: (userId?: string) =>
+    request<Call[]>(`/calls${userId ? `?user_id=${userId}` : ""}`),
+  iceServers: () => request<{ ice_servers: IceServer[] }>("/turn-credentials"),
+};
+
+export const messagesApi = {
+  // Chat history with another user (marks incoming as read server-side).
+  list: (withUserId: string) =>
+    request<Message[]>(`/messages?with=${withUserId}`),
+};
+
+export const pushApi = {
+  publicKey: () => request<{ public_key: string }>("/push/public-key"),
+  subscribe: (sub: PushSubscriptionJSON) =>
+    request<void>("/push/subscribe", { method: "POST", body: JSON.stringify(sub) }),
+};
 
 // Extra claims — employees raise reimbursement claims; employers approve/reject.
 export const claimsApi = {

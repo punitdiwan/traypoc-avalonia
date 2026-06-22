@@ -1,0 +1,13 @@
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    env_file: ../apps/api/.env
+    environment:
+      - PORT=8080
+      - CORS_ORIGIN=https://timetracker.maitretech.com
+    ports:
+      - "127.0.0.1:8081:8080"
+    restart: unless-stopped
+

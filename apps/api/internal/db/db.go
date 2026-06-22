@@ -207,6 +207,62 @@ CREATE TABLE IF NOT EXISTS claims (
 );
 CREATE INDEX IF NOT EXISTS claims_org_status ON claims(org_id, status);
 CREATE INDEX IF NOT EXISTS claims_user ON claims(user_id, created_at DESC);
+
+-- Voice calls: an employer rings an employee (and vice-versa within an org).
+-- status: ringing → answered → ended | missed | rejected | failed.
+-- The recorder bot writes one or more rows to call_recordings per answered call.
+CREATE TABLE IF NOT EXISTS calls (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id           UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    caller_id        UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    callee_id        UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status           TEXT NOT NULL DEFAULT 'ringing',
+    started_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    answered_at      TIMESTAMPTZ,
+    ended_at         TIMESTAMPTZ,
+    duration_seconds INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS calls_org_started   ON calls(org_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS calls_caller        ON calls(caller_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS calls_callee        ON calls(callee_id, started_at DESC);
+
+-- Server-side recording produced by the Pion recorder bot, uploaded to Spaces.
+CREATE TABLE IF NOT EXISTS call_recordings (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    call_id          UUID NOT NULL REFERENCES calls(id) ON DELETE CASCADE,
+    storage_url      TEXT NOT NULL,
+    format           TEXT NOT NULL DEFAULT 'ogg',
+    size_bytes       BIGINT NOT NULL DEFAULT 0,
+    duration_seconds INTEGER NOT NULL DEFAULT 0,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS call_recordings_call ON call_recordings(call_id);
+
+-- Text chat between an employer and an employee within an org. Live delivery is
+-- over the WebSocket; this table is the durable history (and offline delivery).
+CREATE TABLE IF NOT EXISTS messages (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id       UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    sender_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    recipient_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    body         TEXT NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    read_at      TIMESTAMPTZ
+);
+-- One index covering both directions of a conversation, newest first.
+CREATE INDEX IF NOT EXISTS messages_pair ON messages(org_id, sender_id, recipient_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS messages_recipient ON messages(recipient_id, created_at DESC);
+
+-- Web Push (VAPID) subscriptions per user/device, used to ring a closed PWA.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    endpoint   TEXT NOT NULL UNIQUE,
+    p256dh     TEXT NOT NULL,
+    auth       TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS push_subscriptions_user ON push_subscriptions(user_id);
 `
 
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {

@@ -20,6 +20,9 @@ import (
 	"time-tracker/api/internal/jobs"
 	mw "time-tracker/api/internal/middleware"
 	"time-tracker/api/internal/models"
+	"time-tracker/api/internal/push"
+	"time-tracker/api/internal/realtime"
+	"time-tracker/api/internal/recorder"
 	"time-tracker/api/internal/spaces"
 )
 
@@ -97,6 +100,25 @@ func main() {
 	timesheetH := handlers.NewTimesheetHandler(pool)
 	previewH := handlers.NewTimesheetPreviewHandler(pool)
 	claimH := handlers.NewClaimHandler(pool)
+	callH := handlers.NewCallHandler(pool)
+	messageH := handlers.NewMessageHandler(pool)
+	turnH := handlers.NewTURNHandler()
+	pushH := handlers.NewPushHandler(pool)
+
+	// Realtime signaling hub (voice-call + chat). Pushes ring closed PWAs; the
+	// recorder bot captures answered calls to Spaces.
+	pushSender := push.NewSender(pool)
+	hub := realtime.NewHub(pool)
+	hub.OnRing = pushSender.RingCall
+
+	rec := recorder.NewManager(pool, spacesClient, hub.SendEnvelope)
+	if rec.Enabled() {
+		hub.OnRecord = rec.Start
+		hub.OnRecordSignal = rec.HandleSignal
+		hub.OnRecordEnd = rec.Stop
+	} else {
+		log.Println("DO_SPACES_* not configured — call recording disabled")
+	}
 
 	r := chi.NewRouter()
 	r.Use(chiMiddleware.Logger)
@@ -116,6 +138,10 @@ func main() {
 		AllowedHeaders:   []string{"Authorization", "Content-Type"},
 		AllowCredentials: true,
 	}))
+
+	// WebSocket signaling for calls + chat. Self-authenticates via the `token`
+	// query param (browsers can't set WS headers), so it sits outside RequireAuth.
+	r.Get("/ws", hub.ServeWS)
 
 	// Auth — public
 	r.Route("/auth", func(r chi.Router) {
@@ -137,6 +163,14 @@ func main() {
 
 		// Live policy snapshot the desktop polls (can_track, allow_manual_time, rates).
 		r.Get("/me/policy", policyH.Get)
+
+		// Voice calls + chat (employer <-> employee). Signaling itself is over /ws;
+		// these are history/config/registration endpoints.
+		r.Get("/calls", callH.List)
+		r.Get("/messages", messageH.List)
+		r.Get("/turn-credentials", turnH.Get)
+		r.Get("/push/public-key", pushH.PublicKey)
+		r.Post("/push/subscribe", pushH.Subscribe)
 
 		// Time logs — employee can CRUD their own
 		r.Route("/time-logs", func(r chi.Router) {

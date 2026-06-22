@@ -113,6 +113,45 @@ type Timesheet struct {
 	TotalBillableCents int64      `json:"total_billable_cents"`
 }
 
+// Call is a voice call between an employer and an employee in an org.
+// Status: ringing → answered → ended | missed | rejected | failed.
+type Call struct {
+	ID               uuid.UUID  `json:"id"`
+	OrgID            uuid.UUID  `json:"org_id"`
+	CallerID         uuid.UUID  `json:"caller_id"`
+	CalleeID         uuid.UUID  `json:"callee_id"`
+	CallerName       string     `json:"caller_name,omitempty"`
+	CalleeName       string     `json:"callee_name,omitempty"`
+	Status           string     `json:"status"`
+	StartedAt        time.Time  `json:"started_at"`
+	AnsweredAt       *time.Time `json:"answered_at"`
+	EndedAt          *time.Time `json:"ended_at"`
+	DurationSeconds  int        `json:"duration_seconds"`
+	RecordingURL     *string    `json:"recording_url,omitempty"`
+}
+
+// CallRecording is the server-side recording produced for a call.
+type CallRecording struct {
+	ID              uuid.UUID `json:"id"`
+	CallID          uuid.UUID `json:"call_id"`
+	StorageURL      string    `json:"storage_url"`
+	Format          string    `json:"format"`
+	SizeBytes       int64     `json:"size_bytes"`
+	DurationSeconds int       `json:"duration_seconds"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+// Message is one text chat message between two users in an org.
+type Message struct {
+	ID          uuid.UUID  `json:"id"`
+	OrgID       uuid.UUID  `json:"org_id"`
+	SenderID    uuid.UUID  `json:"sender_id"`
+	RecipientID uuid.UUID  `json:"recipient_id"`
+	Body        string     `json:"body"`
+	CreatedAt   time.Time  `json:"created_at"`
+	ReadAt      *time.Time `json:"read_at"`
+}
+
 // ClaimDocument is one supporting file attached to a claim (PDF/PNG/JPG), stored
 // in Spaces and referenced by its public URL.
 type ClaimDocument struct {

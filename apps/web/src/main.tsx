@@ -18,6 +18,7 @@ import ClaimsPage from "./pages/ClaimsPage";
 import EmployeeDashboard from "./pages/EmployeeDashboard";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ToastContainer from "./components/ToastContainer";
+import CallCenter from "./components/CallCenter";
 import { useAuthStore } from "./lib/auth";
 import { useThemeStore } from "./lib/theme";
 
@@ -53,6 +54,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <ToastContainer />
+      <CallCenter />
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />

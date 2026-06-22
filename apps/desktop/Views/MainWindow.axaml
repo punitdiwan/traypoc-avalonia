@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:TrayPoc.ViewModels"
+        xmlns:models="using:TrayPoc.Models"
         xmlns:app="using:TrayPoc"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -9,7 +10,7 @@
         x:DataType="vm:MainWindowViewModel"
         Icon="/Assets/tray-icon.ico"
         Width="560" Height="620"
-        MinWidth="460" MinHeight="480"
+        CanResize="False"
         WindowStartupLocation="CenterScreen"
         Background="#0a0a0a"
         Title="Time Tracker">
@@ -24,7 +25,16 @@
             <Border DockPanel.Dock="Top" Background="#09090b"
                     BorderBrush="#1f2937" BorderThickness="0,0,0,1"
                     Padding="14,8">
-                <Grid ColumnDefinitions="*,Auto">
+              <StackPanel Spacing="2">
+                <TextBlock FontSize="11" Foreground="#6b7280"
+                           Text="{Binding SignedInAs, StringFormat='Signed in as {0}'}"
+                           ToolTip.Tip="{Binding SignedInAs}"
+                           TextTrimming="CharacterEllipsis"/>
+                <TextBlock FontSize="10" Foreground="#4b5563"
+                           Text="{Binding OrgName, StringFormat='🏢 {0}'}"
+                           TextTrimming="CharacterEllipsis"
+                           IsVisible="{Binding OrgName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                <Grid ColumnDefinitions="Auto,*,Auto">
                     <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
                         <Button Content="Dashboard" Classes="tab"
                                 Command="{Binding SelectTabCommand}" CommandParameter="dashboard"/>
@@ -33,9 +43,39 @@
                         <Button Content="Settings" Classes="tab"
                                 Command="{Binding SelectTabCommand}" CommandParameter="settings"/>
                     </StackPanel>
-                    <Button Grid.Column="1" Content="{Binding TrackingButtonText}"
-                            MinWidth="70" Command="{Binding ToggleTrackingCommand}"/>
+
+                    <!-- Project picker — always visible (between Settings and Start) so the
+                         employee can choose which project to track against from any tab.
+                         Bound to the Dashboard VM, which owns project load/persist/Start-gate. -->
+                    <ComboBox Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center"
+                              Margin="8,0" MinWidth="150" MaxWidth="200"
+                              ItemsSource="{Binding DashboardVm.Projects}"
+                              SelectedItem="{Binding DashboardVm.SelectedProject}"
+                              PlaceholderText="Select a project…"
+                              IsVisible="{Binding DashboardVm.HasProjects}">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="models:Project">
+                                <TextBlock Text="{Binding Name}"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <TextBlock Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center"
+                               Margin="8,0" FontSize="11" Foreground="#facc15"
+                               Text="No project assigned" ToolTip.Tip="Ask your organization owner to assign you to a project."
+                               IsVisible="{Binding !DashboardVm.HasProjects}"/>
+
+                    <Button Grid.Column="2" Content="{Binding TrackingButtonText}"
+                            MinWidth="70" Command="{Binding ToggleTrackingCommand}"
+                            IsEnabled="{Binding CanToggleTracking}"/>
                 </Grid>
+              </StackPanel>
+            </Border>
+
+            <Border DockPanel.Dock="Top" Background="#3f1d1d" BorderBrush="#7f1d1d"
+                    BorderThickness="0,0,0,1" Padding="14,8"
+                    IsVisible="{Binding TrackingDisabledByOrg}">
+                <TextBlock Text="Tracking is paused by your organization. Capture will resume automatically when it's re-enabled."
+                           Foreground="#fca5a5" FontSize="12" TextWrapping="Wrap"/>
             </Border>
 
             <Border DockPanel.Dock="Bottom" Background="#09090b"

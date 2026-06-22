@@ -33,6 +33,7 @@ public partial class WorkDiaryViewModel : ViewModelBase
 
     // Screenshot modal
     [ObservableProperty] private bool _isModalOpen;
+    [ObservableProperty] private bool _isModalManual;
     [ObservableProperty] private Bitmap? _modalImage;
     [ObservableProperty] private string? _modalTitle;
     [ObservableProperty] private string? _modalSubtitle;
@@ -130,6 +131,7 @@ public partial class WorkDiaryViewModel : ViewModelBase
         if (thumb is null)
             return;
         var iv = thumb.Interval;
+        IsModalManual = iv.Manual;
         // Prefer the full screenshot; fall back to the thumbnail.
         ModalImage = LoadBitmap(File.Exists(iv.ScreenshotPath) ? iv.ScreenshotPath : iv.ThumbPath);
         var local = ToLocal(iv.StartTime);
@@ -206,12 +208,17 @@ public sealed class DiaryThumbViewModel
     public string Tooltip { get; }
     public TimeInterval Interval { get; }
     public IRelayCommand SelectCommand { get; }
+    /// <summary>Manual-mode interval (no screenshot) → show a "Manual" placeholder.</summary>
+    public bool IsManual { get; }
+    /// <summary>Whether a real thumbnail image is available to render.</summary>
+    public bool HasThumb => Thumb is not null;
 
     public DiaryThumbViewModel(TimeInterval interval, IRelayCommand selectCommand)
     {
         Interval = interval;
         SelectCommand = selectCommand;
         Thumb = WorkDiaryViewModel.LoadBitmap(interval.ThumbPath);
+        IsManual = interval.Manual;
         var local = WorkDiaryViewModel.ToLocal(interval.StartTime);
         TimeText = local?.ToString("t", CultureInfo.CurrentCulture) ?? "";
         string title = string.IsNullOrEmpty(interval.WindowTitle) ? "unknown" : interval.WindowTitle!;

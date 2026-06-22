@@ -9,7 +9,8 @@
   "scripts": {
     "web": "pnpm --filter @time-tracker/web dev",
     "web:build": "pnpm --filter @time-tracker/web build",
-    "api": "make -C apps/api run",
+    "api": "gnome-terminal --title=\"time-tracker api\" -- bash -c \"cd '$PWD/apps/api' && make run; exec bash\" || x-terminal-emulator -e bash -c \"cd '$PWD/apps/api' && make run; exec bash\"",
+    "api:fg": "make -C apps/api run",
     "desktop": "dotnet run --project apps/desktop/TrayPoc.csproj"
   }
 }

@@ -46,9 +46,43 @@ public sealed class Database : IDisposable
                 last_attempt TEXT,
                 FOREIGN KEY (interval_id) REFERENCES time_intervals(id) ON DELETE CASCADE
             );
+            CREATE TABLE IF NOT EXISTS breaks (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at    TEXT NOT NULL,
+                duration_secs INTEGER NOT NULL
+            );
             CREATE INDEX IF NOT EXISTS idx_intervals_start ON time_intervals(start_time);
             CREATE INDEX IF NOT EXISTS idx_intervals_synced ON time_intervals(synced);
+            CREATE INDEX IF NOT EXISTS idx_breaks_started ON breaks(started_at);
             """);
+
+        // The project the interval was tracked against; added after the initial
+        // release, so apply it idempotently for existing databases.
+        EnsureColumn("time_intervals", "project_id", "TEXT");
+        // Manual-mode intervals carry no screenshot; flagged so they sync without
+        // waiting on a Spaces upload. Added later, so apply idempotently too.
+        EnsureColumn("time_intervals", "manual", "INTEGER NOT NULL DEFAULT 0");
+        // Free-text working notes the employee attaches to each interval. Added later.
+        EnsureColumn("time_intervals", "notes", "TEXT");
+        // Process/app name of the active window at capture time (e.g. "chrome", "Code").
+        EnsureColumn("time_intervals", "app_name", "TEXT");
+    }
+
+    /// <summary>Adds a column if it isn't already present (SQLite has no
+    /// ADD COLUMN IF NOT EXISTS).</summary>
+    private void EnsureColumn(string table, string column, string type)
+    {
+        lock (_lock)
+        {
+            using (var check = _conn.CreateCommand())
+            {
+                check.CommandText = $"SELECT 1 FROM pragma_table_info('{table}') WHERE name = $col";
+                check.Parameters.AddWithValue("$col", column);
+                if (check.ExecuteScalar() is not null)
+                    return;
+            }
+            Exec($"ALTER TABLE {table} ADD COLUMN {column} {type};");
+        }
     }
 
     private void Exec(string sql)
@@ -59,15 +93,16 @@ public sealed class Database : IDisposable
     }
 
     public long InsertInterval(string startTime, string? screenshotPath, string? thumbPath,
-        double activityPercent, string? windowTitle)
+        double activityPercent, string? windowTitle, string? projectId, bool manual = false,
+        string? notes = null, string? appName = null)
     {
         lock (_lock)
         {
             using var cmd = _conn.CreateCommand();
             cmd.CommandText = """
                 INSERT INTO time_intervals
-                 (start_time, end_time, screenshot_path, thumb_path, activity_percent, window_title)
-                 VALUES ($start, $start, $shot, $thumb, $act, $title);
+                 (start_time, end_time, screenshot_path, thumb_path, activity_percent, window_title, project_id, manual, notes, app_name)
+                 VALUES ($start, $start, $shot, $thumb, $act, $title, $project, $manual, $notes, $appname);
                 SELECT last_insert_rowid();
                 """;
             cmd.Parameters.AddWithValue("$start", startTime);
@@ -75,6 +110,11 @@ public sealed class Database : IDisposable
             cmd.Parameters.AddWithValue("$thumb", (object?)thumbPath ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$act", activityPercent);
             cmd.Parameters.AddWithValue("$title", (object?)windowTitle ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$project", (object?)projectId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$manual", manual ? 1 : 0);
+            var notesVal = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
+            cmd.Parameters.AddWithValue("$notes", (object?)notesVal ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$appname", (object?)appName ?? DBNull.Value);
             return (long)(cmd.ExecuteScalar() ?? 0L);
         }
     }
@@ -133,6 +173,27 @@ public sealed class Database : IDisposable
 
     public long IntervalsTodayCount() =>
         ScalarLong("SELECT COUNT(*) FROM time_intervals WHERE DATE(start_time) = DATE('now')");
+
+    /// <summary>Record a break the employee took (timestamped in local time), for
+    /// per-day limit enforcement.</summary>
+    public void InsertBreak(long durationSecs)
+    {
+        lock (_lock)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "INSERT INTO breaks (started_at, duration_secs) VALUES (datetime('now','localtime'), $d)";
+            cmd.Parameters.AddWithValue("$d", durationSecs);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    /// <summary>Number of breaks taken today (local date, matching DATE('now','localtime')).</summary>
+    public long BreakCountToday() =>
+        ScalarLong("SELECT COUNT(*) FROM breaks WHERE DATE(started_at) = DATE('now','localtime')");
+
+    /// <summary>Total seconds of break time taken today (local date).</summary>
+    public long BreakSecondsToday() =>
+        ScalarLong("SELECT COALESCE(SUM(duration_secs),0) FROM breaks WHERE DATE(started_at) = DATE('now','localtime')");
 
     public string? LastCaptureTime()
     {
@@ -226,6 +287,40 @@ public sealed class Database : IDisposable
         }
     }
 
+    /// <summary>(id, api_id, thumb_path) for synced intervals carrying a server id whose
+    /// start date falls in [fromDate, toDate]. Used to reconcile server-side deletions:
+    /// any of these whose api_id is no longer present on the server was deleted there.</summary>
+    public List<(long Id, string ApiId, string? ThumbPath)> SyncedIntervalsInRange(string fromDate, string toDate)
+    {
+        lock (_lock)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText =
+                "SELECT id, api_id, thumb_path FROM time_intervals " +
+                "WHERE synced = 1 AND api_id IS NOT NULL AND DATE(start_time) BETWEEN $from AND $to";
+            cmd.Parameters.AddWithValue("$from", fromDate);
+            cmd.Parameters.AddWithValue("$to", toDate);
+            using var r = cmd.ExecuteReader();
+            var list = new List<(long, string, string?)>();
+            while (r.Read())
+                list.Add((r.GetInt64(0), r.GetString(1), r.IsDBNull(2) ? null : r.GetString(2)));
+            return list;
+        }
+    }
+
+    /// <summary>Delete a single interval (its pending_uploads cascade away via FK).
+    /// Used when the corresponding server-side time log was deleted from the web.</summary>
+    public void DeleteInterval(long id)
+    {
+        lock (_lock)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "DELETE FROM time_intervals WHERE id = $id";
+            cmd.Parameters.AddWithValue("$id", id);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
     public void SetSynced(long id, string apiId)
     {
         lock (_lock)
@@ -252,7 +347,7 @@ public sealed class Database : IDisposable
 
     private const string SelectCols =
         "SELECT id, start_time, end_time, screenshot_path, thumb_path, spaces_url, " +
-        "activity_percent, window_title, synced FROM time_intervals";
+        "activity_percent, window_title, synced, project_id, manual, notes, app_name FROM time_intervals";
 
     private static List<TimeInterval> ReadIntervals(SqliteCommand cmd)
     {
@@ -271,6 +366,10 @@ public sealed class Database : IDisposable
                 ActivityPercent = r.IsDBNull(6) ? 0 : r.GetDouble(6),
                 WindowTitle = r.IsDBNull(7) ? null : r.GetString(7),
                 Synced = !r.IsDBNull(8) && r.GetInt32(8) != 0,
+                ProjectId = r.IsDBNull(9) ? null : r.GetString(9),
+                Manual = !r.IsDBNull(10) && r.GetInt32(10) != 0,
+                Notes = r.IsDBNull(11) ? null : r.GetString(11),
+                AppName = r.IsDBNull(12) ? null : r.GetString(12),
             });
         }
         return list;

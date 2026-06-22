@@ -91,8 +91,13 @@ func (h *UploadHandler) Presign(w http.ResponseWriter, r *http.Request) {
 }
 
 func contentTypeForKey(key string) string {
-	if strings.HasSuffix(strings.ToLower(key), ".png") {
+	k := strings.ToLower(key)
+	switch {
+	case strings.HasSuffix(k, ".png"):
 		return "image/png"
+	case strings.HasSuffix(k, ".pdf"):
+		return "application/pdf"
+	default:
+		return "image/jpeg"
 	}
-	return "image/jpeg"
 }

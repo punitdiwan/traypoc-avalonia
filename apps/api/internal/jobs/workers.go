@@ -31,6 +31,7 @@ func StartWorker(redisAddr string, db *pgxpool.Pool, client *asynq.Client, sc *s
 	mux := asynq.NewServeMux()
 	mux.HandleFunc(TypeWeeklyReportDispatch, MakeDispatchHandler(db, client))
 	mux.HandleFunc(TypeWeeklyReport, MakeWeeklyReportHandler(db))
+	mux.HandleFunc(TypeTimesheetAutoApprove, MakeTimesheetAutoApproveHandler(db))
 	if sc != nil {
 		mux.HandleFunc(TypeThumbnail, MakeThumbnailHandler(db, sc))
 	}
@@ -53,7 +54,13 @@ func StartScheduler(redisAddr string) {
 		log.Fatalf("register weekly report cron: %v", err)
 	}
 
+	autoApproveTask := asynq.NewTask(TypeTimesheetAutoApprove, nil)
+	if _, err := scheduler.Register("5 0 * * *", autoApproveTask, asynq.Queue("default")); err != nil {
+		log.Fatalf("register timesheet auto-approve cron: %v", err)
+	}
+
 	log.Println("[scheduler] weekly report cron registered (Mon 09:00 UTC)")
+	log.Println("[scheduler] timesheet auto-approve cron registered (daily 00:05 UTC)")
 
 	if err := scheduler.Run(); err != nil {
 		log.Fatalf("asynq scheduler: %v", err)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -14,6 +15,7 @@ import (
 
 	"time-tracker/api/internal/jobs"
 	mw "time-tracker/api/internal/middleware"
+	"time-tracker/api/internal/models"
 	"time-tracker/api/internal/spaces"
 )
 
@@ -37,6 +39,8 @@ type createTimeLogRequest struct {
 	ScreenshotURL   *string    `json:"screenshot_url"`
 	ThumbnailURL    *string    `json:"thumbnail_url"`
 	WindowTitle     *string    `json:"window_title"`
+	AppName         *string    `json:"app_name"`
+	Notes           *string    `json:"notes"`
 }
 
 func (h *TimeLogHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -59,7 +63,7 @@ func (h *TimeLogHandler) List(w http.ResponseWriter, r *http.Request) {
 		rows, err = h.db.Query(r.Context(),
 			`SELECT id, user_id, project_id, task_id, started_at, ended_at,
 			        duration_seconds, activity_percent, screenshot_url, thumbnail_url,
-			        window_title, created_at
+			        window_title, app_name, notes, created_at
 			 FROM time_logs
 			 WHERE user_id=$1 AND started_at::date=$2
 			 ORDER BY started_at ASC`,
@@ -69,7 +73,7 @@ func (h *TimeLogHandler) List(w http.ResponseWriter, r *http.Request) {
 		rows, err = h.db.Query(r.Context(),
 			`SELECT id, user_id, project_id, task_id, started_at, ended_at,
 			        duration_seconds, activity_percent, screenshot_url, thumbnail_url,
-			        window_title, created_at
+			        window_title, app_name, notes, created_at
 			 FROM time_logs
 			 WHERE user_id=$1
 			 ORDER BY started_at DESC
@@ -90,6 +94,7 @@ func (h *TimeLogHandler) List(w http.ResponseWriter, r *http.Request) {
 
 func (h *TimeLogHandler) Create(w http.ResponseWriter, r *http.Request) {
 	userID := mw.UserID(r)
+	orgID := mw.OrgID(r)
 
 	var req createTimeLogRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -97,16 +102,81 @@ func (h *TimeLogHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if orgID == "" {
+		http.Error(w, "your account is not part of an organization", http.StatusForbidden)
+		return
+	}
+
+	// Authoritative enforcement of the employer's tracking policy (the desktop
+	// poll reacts within ~30s; this rejects anything that slips through that gap
+	// or comes from a stale/hostile client). A screenshot-less entry is a manual
+	// time log and additionally requires allow_manual_time.
+	var canTrack, allowManual, requireNotes bool
+	var canTrackSince time.Time
+	if err := h.db.QueryRow(r.Context(),
+		`SELECT can_track, can_track_since, allow_manual_time, require_notes FROM users WHERE id=$1`, userID,
+	).Scan(&canTrack, &canTrackSince, &allowManual, &requireNotes); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if !canTrack {
+		// Grandfather work captured before tracking was paused: a genuine capture
+		// (carries a screenshot) whose started_at predates the pause is legitimate
+		// buffered work and still syncs. Anything captured at/after the pause — or a
+		// screenshot-less entry — is rejected while paused.
+		grandfathered := req.ScreenshotURL != nil && req.StartedAt.Before(canTrackSince)
+		if !grandfathered {
+			http.Error(w, "time tracking not enabled for your account", http.StatusForbidden)
+			return
+		}
+	}
+	if req.ScreenshotURL == nil && !allowManual {
+		http.Error(w, "manual time entry is not enabled for your account", http.StatusForbidden)
+		return
+	}
+	if requireNotes && (req.Notes == nil || strings.TrimSpace(*req.Notes) == "") {
+		http.Error(w, "working notes are required for your account", http.StatusUnprocessableEntity)
+		return
+	}
+
+	// A project must be selected, and the caller must be a member (or owner) of a
+	// project that lives in their own organization.
+	if req.ProjectID == nil {
+		http.Error(w, "project_id is required", http.StatusBadRequest)
+		return
+	}
+	var allowed bool
+	h.db.QueryRow(r.Context(),
+		`SELECT EXISTS(
+			SELECT 1 FROM projects p
+			LEFT JOIN project_members pm ON pm.project_id = p.id
+			WHERE p.id=$1 AND p.org_id=$2 AND (p.owner_id=$3 OR pm.user_id=$3)
+		)`,
+		req.ProjectID, orgID, userID,
+	).Scan(&allowed)
+	if !allowed {
+		http.Error(w, "project not found or not assigned to you", http.StatusForbidden)
+		return
+	}
+
+	var notes *string
+	if req.Notes != nil {
+		trimmed := strings.TrimSpace(*req.Notes)
+		if trimmed != "" {
+			notes = &trimmed
+		}
+	}
+
 	var id uuid.UUID
 	err := h.db.QueryRow(r.Context(),
 		`INSERT INTO time_logs
-		 (user_id, project_id, task_id, started_at, ended_at, duration_seconds,
-		  activity_percent, screenshot_url, thumbnail_url, window_title)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+		 (user_id, org_id, project_id, task_id, started_at, ended_at, duration_seconds,
+		  activity_percent, screenshot_url, thumbnail_url, window_title, app_name, notes)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 		 RETURNING id`,
-		userID, req.ProjectID, req.TaskID, req.StartedAt, req.EndedAt,
+		userID, orgID, req.ProjectID, req.TaskID, req.StartedAt, req.EndedAt,
 		req.DurationSeconds, req.ActivityPercent, req.ScreenshotURL,
-		req.ThumbnailURL, req.WindowTitle,
+		req.ThumbnailURL, req.WindowTitle, req.AppName, notes,
 	).Scan(&id)
 	if err != nil {
 		http.Error(w, "insert error", http.StatusInternalServerError)
@@ -127,6 +197,48 @@ func (h *TimeLogHandler) Create(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"id": id.String()})
 }
 
+// IDs returns the ids of the caller's own time logs whose started_at falls in
+// [from,to] (YYYY-MM-DD; defaults to the last 14 days). The desktop uses this to
+// reconcile: any locally-synced interval in that window whose api_id is absent here
+// was deleted server-side (e.g. from the web Work Diary) and is removed locally.
+func (h *TimeLogHandler) IDs(w http.ResponseWriter, r *http.Request) {
+	userID := mw.UserID(r)
+
+	to := time.Now().UTC()
+	from := to.AddDate(0, 0, -14)
+	if s := r.URL.Query().Get("from"); s != "" {
+		if t, err := time.Parse("2006-01-02", s); err == nil {
+			from = t
+		}
+	}
+	if s := r.URL.Query().Get("to"); s != "" {
+		if t, err := time.Parse("2006-01-02", s); err == nil {
+			to = t
+		}
+	}
+
+	rows, err := h.db.Query(r.Context(),
+		`SELECT id FROM time_logs
+		 WHERE user_id=$1 AND started_at::date BETWEEN $2::date AND $3::date`,
+		userID, from.Format("2006-01-02"), to.Format("2006-01-02"))
+	if err != nil {
+		http.Error(w, "query error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	ids := []string{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err == nil {
+			ids = append(ids, id.String())
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"ids": ids})
+}
+
 func (h *TimeLogHandler) Get(w http.ResponseWriter, r *http.Request) {
 	userID := mw.UserID(r)
 	logID := chi.URLParam(r, "id")
@@ -134,7 +246,7 @@ func (h *TimeLogHandler) Get(w http.ResponseWriter, r *http.Request) {
 	row := h.db.QueryRow(r.Context(),
 		`SELECT id, user_id, project_id, task_id, started_at, ended_at,
 		        duration_seconds, activity_percent, screenshot_url, thumbnail_url,
-		        window_title, created_at
+		        window_title, app_name, notes, created_at
 		 FROM time_logs WHERE id=$1 AND user_id=$2`,
 		logID, userID,
 	)
@@ -148,15 +260,185 @@ func (h *TimeLogHandler) Get(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(tl)
 }
 
+type updateTimeLogRequest struct {
+	ProjectID *uuid.UUID `json:"project_id"`
+	StartedAt *time.Time `json:"started_at"`
+	EndedAt   *time.Time `json:"ended_at"`
+	Notes     *string    `json:"notes"`
+}
+
+// Update edits a single time log's project, time window, or notes. Only the
+// provided fields change; when either timestamp moves, duration is recomputed.
+// Authorization mirrors Delete:
+//   - god      — any log
+//   - employer — any log within their organization
+//   - employee — only their own, and only when allow_delete is enabled
+//
+// A new project must belong to the log's organization; for an employee it must
+// additionally be one they own or are a member of.
+func (h *TimeLogHandler) Update(w http.ResponseWriter, r *http.Request) {
+	userID := mw.UserID(r)
+	logID := chi.URLParam(r, "id")
+
+	var req updateTimeLogRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+
+	// Access scope — the WHERE clause doubles as authorization. `where` is used by
+	// the scoped SELECT ($1..); `whereUpd` is the same predicate shifted by the 5
+	// SET params for the UPDATE ($6..).
+	isEmployee := false
+	var where, whereUpd string
+	var args []any
+	switch {
+	case mw.IsGod(r):
+		where, whereUpd, args = `id=$1`, `id=$6`, []any{logID}
+	case mw.Role(r) == models.RoleEmployer:
+		where, whereUpd, args = `id=$1 AND org_id=$2`, `id=$6 AND org_id=$7`, []any{logID, mw.OrgID(r)}
+	default: // employee — gated by allow_delete (the "modify my own logs" capability)
+		isEmployee = true
+		var allowed bool
+		if err := h.db.QueryRow(r.Context(),
+			`SELECT allow_delete FROM users WHERE id=$1`, userID).Scan(&allowed); err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if !allowed {
+			http.Error(w, "editing time logs is not enabled for your account", http.StatusForbidden)
+			return
+		}
+		where, whereUpd, args = `id=$1 AND user_id=$2`, `id=$6 AND user_id=$7`, []any{logID, userID}
+	}
+
+	// Load current values within scope (404 if not visible to the caller).
+	var (
+		curProject       *uuid.UUID
+		curStart, curEnd time.Time
+		curNotes         *string
+		orgID            uuid.UUID
+	)
+	if err := h.db.QueryRow(r.Context(),
+		`SELECT project_id, started_at, ended_at, notes, org_id FROM time_logs WHERE `+where,
+		args...,
+	).Scan(&curProject, &curStart, &curEnd, &curNotes, &orgID); err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+
+	// Apply the provided fields over current values.
+	newProject := curProject
+	if req.ProjectID != nil {
+		newProject = req.ProjectID
+	}
+	newStart, newEnd := curStart, curEnd
+	if req.StartedAt != nil {
+		newStart = *req.StartedAt
+	}
+	if req.EndedAt != nil {
+		newEnd = *req.EndedAt
+	}
+	newNotes := curNotes
+	if req.Notes != nil {
+		if trimmed := strings.TrimSpace(*req.Notes); trimmed != "" {
+			newNotes = &trimmed
+		} else {
+			newNotes = nil
+		}
+	}
+
+	if !newEnd.After(newStart) {
+		http.Error(w, "ended_at must be after started_at", http.StatusBadRequest)
+		return
+	}
+	duration := int(newEnd.Sub(newStart).Seconds())
+
+	// Validate a (possibly changed) project belongs to the log's org. Employees
+	// must also be an owner/member of the target project.
+	if newProject != nil {
+		var ok bool
+		if isEmployee {
+			h.db.QueryRow(r.Context(),
+				`SELECT EXISTS(
+					SELECT 1 FROM projects p
+					LEFT JOIN project_members pm ON pm.project_id = p.id
+					WHERE p.id=$1 AND p.org_id=$2 AND (p.owner_id=$3 OR pm.user_id=$3)
+				)`, newProject, orgID, userID).Scan(&ok)
+		} else {
+			h.db.QueryRow(r.Context(),
+				`SELECT EXISTS(SELECT 1 FROM projects WHERE id=$1 AND org_id=$2)`,
+				newProject, orgID).Scan(&ok)
+		}
+		if !ok {
+			http.Error(w, "project not found in this organization", http.StatusBadRequest)
+			return
+		}
+	}
+
+	tag, err := h.db.Exec(r.Context(),
+		`UPDATE time_logs SET project_id=$1, started_at=$2, ended_at=$3, duration_seconds=$4, notes=$5
+		 WHERE `+whereUpd,
+		append([]any{newProject, newStart, newEnd, duration, newNotes}, args...)...,
+	)
+	if err != nil {
+		http.Error(w, "update error", http.StatusInternalServerError)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+
+	row := h.db.QueryRow(r.Context(),
+		`SELECT id, user_id, project_id, task_id, started_at, ended_at,
+		        duration_seconds, activity_percent, screenshot_url, thumbnail_url,
+		        window_title, app_name, notes, created_at
+		 FROM time_logs WHERE id=$1`, logID)
+	tl, err := scanTimeLog(row)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(tl)
+}
+
+// Delete removes a single time log (and its screenshots in Spaces). Authorization:
+//   • god       — any log
+//   • employer  — any log within their own organization (the owner can always delete)
+//   • employee  — only their own log, and only when allow_delete is enabled for them
+// The matching WHERE clause doubles as the access scope, so an unauthorized target
+// simply matches no rows (404) rather than being deleted.
 func (h *TimeLogHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	userID := mw.UserID(r)
 	logID := chi.URLParam(r, "id")
 
-	h.deleteSpacesObjects(r.Context(),
-		`SELECT screenshot_url, thumbnail_url FROM time_logs WHERE id=$1 AND user_id=$2`, logID, userID)
+	var where string
+	var args []any
+	switch {
+	case mw.IsGod(r):
+		where, args = `id=$1`, []any{logID}
+	case mw.Role(r) == models.RoleEmployer:
+		where, args = `id=$1 AND org_id=$2`, []any{logID, mw.OrgID(r)}
+	default: // employee — gated by the employer-granted allow_delete permission
+		var allowed bool
+		if err := h.db.QueryRow(r.Context(),
+			`SELECT allow_delete FROM users WHERE id=$1`, userID).Scan(&allowed); err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if !allowed {
+			http.Error(w, "deleting time logs is not enabled for your account", http.StatusForbidden)
+			return
+		}
+		where, args = `id=$1 AND user_id=$2`, []any{logID, userID}
+	}
 
-	tag, err := h.db.Exec(r.Context(),
-		`DELETE FROM time_logs WHERE id=$1 AND user_id=$2`, logID, userID)
+	h.deleteSpacesObjects(r.Context(),
+		`SELECT screenshot_url, thumbnail_url FROM time_logs WHERE `+where, args...)
+
+	tag, err := h.db.Exec(r.Context(), `DELETE FROM time_logs WHERE `+where, args...)
 	if err != nil || tag.RowsAffected() == 0 {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
@@ -222,16 +504,16 @@ type rowsScanner interface {
 
 func scanTimeLog(row scanner) (map[string]any, error) {
 	var (
-		id, userID                   uuid.UUID
-		projectID, taskID            *uuid.UUID
-		startedAt, endedAt, created  time.Time
-		durSec, actPct               int
-		screenshotURL, thumbnailURL  *string
-		windowTitle                  *string
+		id, userID                  uuid.UUID
+		projectID, taskID           *uuid.UUID
+		startedAt, endedAt, created time.Time
+		durSec, actPct              int
+		screenshotURL, thumbnailURL *string
+		windowTitle, appName, notes *string
 	)
 	err := row.Scan(
 		&id, &userID, &projectID, &taskID, &startedAt, &endedAt,
-		&durSec, &actPct, &screenshotURL, &thumbnailURL, &windowTitle, &created,
+		&durSec, &actPct, &screenshotURL, &thumbnailURL, &windowTitle, &appName, &notes, &created,
 	)
 	if err != nil {
 		return nil, err
@@ -248,6 +530,8 @@ func scanTimeLog(row scanner) (map[string]any, error) {
 		"screenshot_url":   screenshotURL,
 		"thumbnail_url":    thumbnailURL,
 		"window_title":     windowTitle,
+		"app_name":         appName,
+		"notes":            notes,
 		"created_at":       created,
 	}, nil
 }

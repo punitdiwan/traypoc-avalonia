@@ -190,7 +190,7 @@ export default function DiaryPage() {
   return (
     <div className="min-h-screen">
       <NavBar />
-      <main className="max-w-5xl mx-auto px-6 py-8">
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>

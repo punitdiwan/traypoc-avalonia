@@ -69,7 +69,7 @@ export default function ReportsPage() {
   return (
     <div className="min-h-screen">
       <NavBar />
-      <main className="max-w-5xl mx-auto px-6 py-8">
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
         <div className="flex flex-wrap items-end justify-between gap-3 mb-6">
           <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">Reports</h1>
           <div className="flex items-end gap-2">

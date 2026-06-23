@@ -45,7 +45,7 @@ export default function InvoicePage() {
   return (
     <div className="min-h-screen">
       <NavBar />
-      <main className="max-w-3xl mx-auto px-6 py-8">
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
         {/* Toolbar (hidden when printing) */}
         <div className="no-print flex items-center justify-between mb-6">
           <Link

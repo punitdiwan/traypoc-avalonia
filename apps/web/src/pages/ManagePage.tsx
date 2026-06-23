@@ -61,7 +61,7 @@ export default function ManagePage() {
   return (
     <div className="min-h-screen">
       <NavBar />
-      <main className="max-w-4xl mx-auto px-6 py-8">
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
         <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100 mb-6">Projects</h1>
 
         <form onSubmit={handleCreate} className="flex flex-col sm:flex-row gap-3 mb-8">
@@ -79,7 +79,7 @@ export default function ManagePage() {
             placeholder="Rate / hr (optional)"
             value={newRate}
             onChange={(e) => setNewRate(e.target.value)}
-            className={`w-44 ${inputClass}`}
+            className={`w-full sm:w-44 ${inputClass}`}
           />
           <button
             type="submit"
@@ -464,19 +464,19 @@ function EmployeesSection({ currency }: { currency: string }) {
           {employees.map((emp) => (
             <div
               key={emp.id}
-              className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 px-5 py-4 flex items-center gap-4"
+              className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4"
             >
-              {/* Avatar */}
-              <div className="h-9 w-9 shrink-0 rounded-full bg-brand-100 dark:bg-brand-900/30 flex items-center justify-center text-brand-700 dark:text-brand-400 font-semibold text-sm select-none">
-                {empInitials(emp)}
-              </div>
-
-              {/* Identity */}
-              <div className="min-w-0 flex-1">
-                <p className="font-medium text-gray-900 dark:text-gray-100 text-sm truncate">
-                  {displayName(emp)}
-                </p>
-                <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{emp.email}</p>
+              {/* Avatar + identity */}
+              <div className="flex items-center gap-3 min-w-0 sm:flex-1">
+                <div className="h-9 w-9 shrink-0 rounded-full bg-brand-100 dark:bg-brand-900/30 flex items-center justify-center text-brand-700 dark:text-brand-400 font-semibold text-sm select-none">
+                  {empInitials(emp)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-gray-900 dark:text-gray-100 text-sm truncate">
+                    {displayName(emp)}
+                  </p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{emp.email}</p>
+                </div>
               </div>
 
               {/* Status badges */}
@@ -502,7 +502,7 @@ function EmployeesSection({ currency }: { currency: string }) {
               </div>
 
               {/* Actions */}
-              <div className="flex items-center gap-3 shrink-0">
+              <div className="flex items-center gap-3 flex-wrap sm:flex-nowrap sm:shrink-0">
                 <EmployeeComms userId={emp.id} name={displayName(emp)} />
                 <Link
                   to={`/diary/${emp.id}`}
@@ -614,7 +614,7 @@ function AppCategoriesSection() {
         Tag applications as productive, neutral, or unproductive to compute productivity scores.
       </p>
 
-      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead>
             <tr className="bg-gray-50 dark:bg-gray-800/50 text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">

@@ -44,7 +44,7 @@ export default function EmployeeDashboard() {
   return (
     <div className="min-h-screen">
       <NavBar />
-      <main className="max-w-4xl mx-auto px-6 py-8">
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
         <PageHeader
           title="My Dashboard"
           subtitle={`${user ? displayName(user) : ""} · Today`}

@@ -77,7 +77,7 @@ export default function OverviewPage() {
   return (
     <div className="min-h-screen">
       <NavBar />
-      <main className="max-w-6xl mx-auto px-6 py-8">
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
             Team Overview

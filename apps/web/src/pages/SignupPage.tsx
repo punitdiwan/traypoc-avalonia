@@ -33,7 +33,7 @@ export default function SignupPage() {
     "w-full border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent";
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
+    <div className="min-h-screen flex items-center justify-center p-4 bg-gray-50 dark:bg-gray-950">
       <div className="w-full max-w-sm bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-800 p-8">
         <div className="flex items-center gap-2 mb-1">
           <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-white">⏱</span>

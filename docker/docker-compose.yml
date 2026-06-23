@@ -17,6 +17,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.web
+    env_file: ../apps/web/.env
     # Static SPA bundle behind the in-container nginx. The host nginx terminates
     # TLS and proxies / here, and /api + /ws to the api service above.
     ports:

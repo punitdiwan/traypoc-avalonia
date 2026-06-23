@@ -12,14 +12,20 @@ export default function NavBar() {
   const addToast = useToastStore((s) => s.addToast);
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
   const [savingName, setSavingName] = useState(false);
   const [showChangePw, setShowChangePw] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const navRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (menuRef.current && !menuRef.current.contains(target)) {
         setMenuOpen(false);
+      }
+      if (navRef.current && !navRef.current.contains(target)) {
+        setNavOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -62,52 +68,86 @@ export default function NavBar() {
         .toUpperCase()
     : user?.email[0].toUpperCase() || "?";
 
+  // Single source of truth for nav links, rendered both on desktop and in the
+  // mobile hamburger panel so the two never drift apart.
+  const navLinks: { to: string; label: string; end?: boolean }[] = user
+    ? user.role === "employee"
+      ? [
+          { to: "/dashboard", label: "Dashboard", end: true },
+          { to: `/diary/${user.id}`, label: "Work Diary" },
+          { to: "/timesheets", label: "Timesheets" },
+          { to: "/claims", label: "Claims" },
+        ]
+      : [
+          { to: "/dashboard", label: "Overview", end: true },
+          { to: "/reports", label: "Reports" },
+          { to: "/manage", label: "Manage" },
+          { to: "/claims", label: "Claims" },
+          ...(user.role === "god" ? [{ to: "/admin", label: "Organizations" }] : []),
+        ]
+    : [];
+
   return (
   <>
     <nav className="no-print bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 px-6 py-3 flex items-center justify-between relative z-40">
-      <div className="flex items-center gap-6">
+      <div className="flex items-center gap-6" ref={navRef}>
+        {user && navLinks.length > 0 && (
+          <button
+            onClick={() => setNavOpen((o) => !o)}
+            aria-label="Toggle navigation menu"
+            aria-expanded={navOpen}
+            className="sm:hidden -ml-1 inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              {navOpen ? (
+                <>
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                </>
+              ) : (
+                <>
+                  <line x1="4" y1="7" x2="20" y2="7" />
+                  <line x1="4" y1="12" x2="20" y2="12" />
+                  <line x1="4" y1="17" x2="20" y2="17" />
+                </>
+              )}
+            </svg>
+          </button>
+        )}
         <Link to="/dashboard" className="flex items-center gap-2 font-semibold text-brand-600 dark:text-brand-400 text-lg">
           <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-brand-600 text-white text-sm">⏱</span>
           {user?.org_name || "TimeTracker"}
         </Link>
         <div className="hidden sm:flex items-center gap-4">
-          {user?.role === "employee" ? (
-            <>
-              <NavLink to="/dashboard" className={linkClass} end>
-                Dashboard
-              </NavLink>
-              <NavLink to={`/diary/${user.id}`} className={linkClass}>
-                Work Diary
-              </NavLink>
-              <NavLink to="/timesheets" className={linkClass}>
-                Timesheets
-              </NavLink>
-              <NavLink to="/claims" className={linkClass}>
-                Claims
-              </NavLink>
-            </>
-          ) : (
-            <>
-              <NavLink to="/dashboard" className={linkClass} end>
-                Overview
-              </NavLink>
-              <NavLink to="/reports" className={linkClass}>
-                Reports
-              </NavLink>
-              <NavLink to="/manage" className={linkClass}>
-                Manage
-              </NavLink>
-              <NavLink to="/claims" className={linkClass}>
-                Claims
-              </NavLink>
-              {user?.role === "god" && (
-                <NavLink to="/admin" className={linkClass}>
-                  Organizations
-                </NavLink>
-              )}
-            </>
-          )}
+          {navLinks.map((l) => (
+            <NavLink key={l.to} to={l.to} className={linkClass} end={l.end}>
+              {l.label}
+            </NavLink>
+          ))}
         </div>
+
+        {/* Mobile nav panel — drops below the bar when the hamburger is open. */}
+        {navOpen && navLinks.length > 0 && (
+          <div className="sm:hidden absolute top-full left-0 right-0 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 shadow-lg flex flex-col p-2 animate-in fade-in slide-in-from-top-2 duration-200">
+            {navLinks.map((l) => (
+              <NavLink
+                key={l.to}
+                to={l.to}
+                end={l.end}
+                onClick={() => setNavOpen(false)}
+                className={({ isActive }) =>
+                  `px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+                    isActive
+                      ? "bg-brand-50 text-brand-600 dark:bg-brand-900/20 dark:text-brand-400"
+                      : "text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+                  }`
+                }
+              >
+                {l.label}
+              </NavLink>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-4">

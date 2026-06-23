@@ -48,9 +48,12 @@ class CallManager {
   canRecord = false;
   recordEnabled = true;
 
-  // LiveKit room for the active call; remoteStream feeds CallCenter's <audio>.
+  // LiveKit room for the active call. The remote audio element is created and
+  // owned here (via track.attach) so playback goes through LiveKit's pipeline —
+  // hand-rolling a MediaStream + <audio srcObject> caused glitchy/echoey audio,
+  // especially on iOS.
   private room: Room | null = null;
-  remoteStream: MediaStream | null = null;
+  private audioEl: HTMLAudioElement | null = null;
   private listeners = new Set<Listener>();
   private unsub: (() => void) | null = null;
 
@@ -74,12 +77,30 @@ class CallManager {
   // via TrackSubscribed; the peer's presence flips us to "connected".
   private async joinRoom(callId: string) {
     const { url, token } = await callsApi.livekitToken(callId);
-    const room = new Room();
+    // echoCancellation/noiseSuppression/autoGainControl on the mic keep the call
+    // clean (no echo/howl); without them you get garbled, noisy audio.
+    const room = new Room({
+      audioCaptureDefaults: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
     room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => {
       if (track.kind === Track.Kind.Audio) {
-        this.remoteStream = new MediaStream([track.mediaStreamTrack]);
-        this.emit();
+        // Let LiveKit create & drive the audio element (correct jitter buffer +
+        // iOS handling), then we just position/route it.
+        const el = track.attach();
+        el.autoplay = true;
+        el.setAttribute("playsinline", "true");
+        this.audioEl = el;
+        document.body.appendChild(el);
+        void this.applySpeaker();
       }
+    });
+    room.on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
+      track.detach().forEach((el) => el.remove());
+      this.audioEl = null;
     });
     room.on(RoomEvent.ParticipantConnected, () => this.onPeerPresent());
     room.on(RoomEvent.ParticipantDisconnected, () => {
@@ -91,9 +112,44 @@ class CallManager {
 
     await room.connect(url, token);
     await room.localParticipant.setMicrophoneEnabled(true);
+    // iOS blocks autoplay until a gesture; accept()/startCall() are click-driven,
+    // so unlock playback here.
+    try {
+      await room.startAudio();
+    } catch {
+      /* not needed / already unlocked */
+    }
     this.room = room;
     // The other side may already be in the room (they joined first).
     if (room.remoteParticipants.size > 0) this.onPeerPresent();
+  }
+
+  // Route remote audio to loudspeaker vs earpiece via setSinkId (where supported;
+  // absent on iOS Safari, which just uses the default route). We never mute the
+  // element — that would kill the voice.
+  private async applySpeaker() {
+    const el = this.audioEl as
+      | (HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> })
+      | null;
+    if (!el) return;
+    el.muted = false;
+    if (typeof el.setSinkId !== "function") return;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const outputs = devices.filter((d) => d.kind === "audiooutput");
+      if (!outputs.length) return;
+      const label = (d: MediaDeviceInfo) => d.label.toLowerCase();
+      const target = this.speakerOn
+        ? outputs.find((d) => /speaker|speakerphone/.test(label(d))) ??
+          outputs.find((d) => d.deviceId === "default") ??
+          outputs[0]
+        : outputs.find((d) => /earpiece|earphone|receiver/.test(label(d))) ??
+          outputs.find((d) => d.deviceId === "communications") ??
+          outputs[0];
+      if (target) await el.setSinkId(target.deviceId);
+    } catch {
+      /* no permission / unsupported sink — leave on default route */
+    }
   }
 
   // Both peers are now in the room — the call is live.
@@ -162,9 +218,10 @@ class CallManager {
     this.emit();
   }
 
-  /** Toggle remote audio output (speaker). The UI routes the <audio> element. */
+  /** Toggle remote audio output between loudspeaker and earpiece. */
   toggleSpeaker() {
     this.speakerOn = !this.speakerOn;
+    void this.applySpeaker();
     this.emit();
   }
 
@@ -191,9 +248,13 @@ class CallManager {
   }
 
   private cleanup(state: CallState) {
+    if (this.audioEl) {
+      this.audioEl.srcObject = null;
+      this.audioEl.remove();
+      this.audioEl = null;
+    }
     this.room?.disconnect();
     this.room = null;
-    this.remoteStream = null;
     this.muted = false;
     this.speakerOn = true;
     this.startedAt = 0;

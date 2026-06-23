@@ -2,7 +2,7 @@
 // the signaling connection, plays the remote audio, and renders the incoming /
 // outgoing / in-call UI. Employers start calls from the employee list; employees
 // only ever see the incoming/in-call states here.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { callManager } from "@/lib/call";
 import { useCall } from "@/lib/useCall";
 import { setupPush } from "@/lib/push";
@@ -27,7 +27,6 @@ export default function CallCenter() {
   const isAuthed = useAuthStore((s) => s.isAuthenticated());
   const user = useAuthStore((s) => s.user);
   const canRecord = !!user && user.role !== "employee";
-  const audioRef = useRef<HTMLAudioElement>(null);
 
   // Start signaling + register push once authenticated.
   useEffect(() => {
@@ -38,36 +37,19 @@ export default function CallCenter() {
     }
   }, [isAuthed, canRecord]);
 
-  // Pipe the remote stream into the audio element whenever it changes.
-  useEffect(() => {
-    if (audioRef.current && call.remoteStream) {
-      audioRef.current.srcObject = call.remoteStream;
-      audioRef.current.play().catch(() => {});
-    }
-  });
-
-  // Speaker on/off — route the remote audio to loudspeaker vs earpiece. We must
-  // NOT mute (that kills the voice); instead we pick the output device. Only
-  // platforms that expose setSinkId (e.g. Android Chrome, desktop) can switch —
-  // elsewhere the audio simply keeps playing on the default route.
-  useEffect(() => {
-    const el = audioRef.current;
-    if (!el) return;
-    el.muted = false;
-    void applyAudioOutput(el, call.speakerOn);
-  }, [call.speakerOn, call.remoteStream]);
+  // Remote audio playback + speaker routing are owned by callManager (LiveKit
+  // attach), so the overlay is purely UI.
 
   const elapsed = useElapsed(call.state === "connected", call.startedAt);
 
   if (!isAuthed || call.state === "idle") {
-    return <audio ref={audioRef} autoPlay />;
+    return null;
   }
 
   const peerName = call.info?.peerName || "Unknown";
 
   return (
     <>
-      <audio ref={audioRef} autoPlay />
       <div className="fixed inset-x-0 bottom-0 z-[60] flex justify-center p-4 sm:bottom-6 pointer-events-none">
         <div className="pointer-events-auto w-full max-w-sm rounded-2xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-2xl p-5">
           <div className="flex items-center gap-3">
@@ -148,34 +130,6 @@ export default function CallCenter() {
       </div>
     </>
   );
-}
-
-// setSinkId is the only standard web hook for choosing an audio output device.
-// It's absent on iOS Safari (audio stays on the default route there). When
-// present, we try to pick the loudspeaker (speaker on) or the earpiece/receiver
-// (speaker off). Device labels require a prior getUserMedia grant, which an
-// active call already has.
-type SinkCapableAudio = HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
-
-async function applyAudioOutput(el: HTMLAudioElement, speakerOn: boolean) {
-  const audio = el as SinkCapableAudio;
-  if (typeof audio.setSinkId !== "function") return; // unsupported -> default route
-  try {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const outputs = devices.filter((d) => d.kind === "audiooutput");
-    if (outputs.length === 0) return;
-    const label = (d: MediaDeviceInfo) => d.label.toLowerCase();
-    const target = speakerOn
-      ? outputs.find((d) => /speaker|speakerphone/.test(label(d))) ??
-        outputs.find((d) => d.deviceId === "default") ??
-        outputs[0]
-      : outputs.find((d) => /earpiece|earphone|receiver/.test(label(d))) ??
-        outputs.find((d) => d.deviceId === "communications") ??
-        outputs[0];
-    if (target) await audio.setSinkId(target.deviceId);
-  } catch {
-    // No permission / unsupported sink — leave the audio on its default route.
-  }
 }
 
 function ToggleButton({

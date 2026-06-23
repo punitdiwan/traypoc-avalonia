@@ -1,0 +1,33 @@
+# Production LiveKit server config (single node).
+#
+# API keys are injected via the LIVEKIT_KEYS env in docker-compose.yml so secrets
+# stay out of this file. Media (WebRTC) uses the host network — see compose.
+port: 7880
+bind_addresses:
+  - "" # all interfaces (host networking)
+
+rtc:
+  tcp_port: 7881 # WebRTC/TCP fallback when UDP is blocked
+  # UDP mux range — OPEN THESE ON THE VPS FIREWALL (udp). The SFU has a public
+  # IP, so clients connect outbound to it here; this is what makes strict/
+  # symmetric NAT work without a separate TURN server.
+  port_range_start: 50000
+  port_range_end: 50100
+  use_external_ip: true # auto-detect the VPS public IP for ICE candidates
+
+# Redis lets Egress talk to the server. Harmless for a single node; required once
+# you enable recording (the egress service joins over this same Redis).
+redis:
+  address: 127.0.0.1:6379
+
+logging:
+  level: info
+
+# Embedded TURN over TLS (optional hardening). Only needed for clients that
+# can't even reach the UDP range or TCP 7881 (very strict corporate firewalls).
+# Requires a cert for the domain; leave disabled for the first prod test.
+# turn:
+#   enabled: true
+#   domain: livekit.example.com
+#   tls_port: 5349
+#   external_tls: true   # terminate TLS at your host nginx, forward to tls_port

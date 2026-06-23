@@ -1,14 +1,22 @@
-// WebRTC 1:1 audio call manager, layered on the signaling WebSocket.
+// 1:1 audio call manager, on top of LiveKit (SFU) for media + our signaling
+// WebSocket for ringing.
 //
-// Caller flow:  startCall() -> send call-offer (with a fresh call_id + SDP)
-//               <- call-accept (SDP answer) -> connected
-// Callee flow:  receive call-offer -> state "incoming"
-//               accept() -> send call-accept (SDP answer) -> connected
+// LiveKit has no notion of "ringing", so the WS hub still carries the call
+// lifecycle: a call-offer rings the callee (and fires a push), call-accept /
+// call-reject / call-cancel / hangup drive state and the persisted call row. The
+// actual audio never touches our API — both peers join a LiveKit *room* named
+// after the call id and the SFU relays between them.
 //
-// ICE candidates trickle both ways as "ice-candidate". hangup/reject/cancel end
-// the call and tear down the peer connection.
+// Caller:  startCall() -> ring (call-offer) + join room, publish mic -> wait
+//          for the callee's participant to appear -> connected.
+// Callee:  receive call-offer (state "incoming") -> accept() -> join room,
+//          publish mic + send call-accept -> connected.
+//
+// Recording is server-side (LiveKit Egress), toggled by the employer via the
+// existing record-control message — no client media peer involved.
 
-import { callsApi, type IceServer } from "./api";
+import { Room, RoomEvent, Track, type RemoteTrack } from "livekit-client";
+import { callsApi } from "./api";
 import { realtime, type Envelope } from "./realtime";
 
 export type CallState =
@@ -33,20 +41,16 @@ class CallManager {
   info: CallInfo | null = null;
   muted = false;
   startedAt = 0;
-  // Remote audio output (speaker) on/off — UI mutes the <audio> element.
+  // Remote audio output (speaker) on/off — UI mutes/routes the <audio> element.
   speakerOn = true;
   // Whether THIS client may control server-side recording (employer/god only),
   // set by the UI after login, and the admin's current record preference.
   canRecord = false;
   recordEnabled = true;
 
-  private pc: RTCPeerConnection | null = null;
-  // Separate peer connection to the server-side recorder bot (send-only mic).
-  private recordPc: RTCPeerConnection | null = null;
-  private localStream: MediaStream | null = null;
+  // LiveKit room for the active call; remoteStream feeds CallCenter's <audio>.
+  private room: Room | null = null;
   remoteStream: MediaStream | null = null;
-  private pendingOffer: RTCSessionDescriptionInit | null = null;
-  private pendingCandidates: RTCIceCandidateInit[] = [];
   private listeners = new Set<Listener>();
   private unsub: (() => void) | null = null;
 
@@ -66,51 +70,42 @@ class CallManager {
     this.listeners.forEach((l) => l());
   }
 
-  private async iceServers(): Promise<IceServer[]> {
-    try {
-      const { ice_servers } = await callsApi.iceServers();
-      return ice_servers;
-    } catch {
-      return [{ urls: ["stun:stun.l.google.com:19302"] }];
-    }
-  }
-
-  private async newPeer(peerId: string, callId: string): Promise<RTCPeerConnection> {
-    const pc = new RTCPeerConnection({ iceServers: await this.iceServers() });
-    pc.onicecandidate = (e) => {
-      if (e.candidate) {
-        realtime.send({
-          type: "ice-candidate",
-          to: peerId,
-          call_id: callId,
-          payload: e.candidate.toJSON(),
-        });
-      }
-    };
-    pc.ontrack = (e) => {
-      this.remoteStream = e.streams[0];
-      this.emit();
-    };
-    pc.onconnectionstatechange = () => {
-      if (pc.connectionState === "connected") {
-        this.state = "connected";
-        if (!this.startedAt) {
-          this.startedAt = Date.now();
-          // Now that both sides have a live mic, the admin tells the server
-          // whether to spin up the recorder bot for this call.
-          if (this.canRecord) this.sendRecordControl();
-        }
+  // Join the LiveKit room for a call and publish the mic. Remote audio arrives
+  // via TrackSubscribed; the peer's presence flips us to "connected".
+  private async joinRoom(callId: string) {
+    const { url, token } = await callsApi.livekitToken(callId);
+    const room = new Room();
+    room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => {
+      if (track.kind === Track.Kind.Audio) {
+        this.remoteStream = new MediaStream([track.mediaStreamTrack]);
         this.emit();
-      } else if (["failed", "disconnected", "closed"].includes(pc.connectionState)) {
-        if (this.state !== "ended") this.cleanup("ended");
       }
-    };
-    return pc;
+    });
+    room.on(RoomEvent.ParticipantConnected, () => this.onPeerPresent());
+    room.on(RoomEvent.ParticipantDisconnected, () => {
+      if (room.remoteParticipants.size === 0 && this.state !== "ended") this.cleanup("ended");
+    });
+    room.on(RoomEvent.Disconnected, () => {
+      if (this.state !== "ended") this.cleanup("ended");
+    });
+
+    await room.connect(url, token);
+    await room.localParticipant.setMicrophoneEnabled(true);
+    this.room = room;
+    // The other side may already be in the room (they joined first).
+    if (room.remoteParticipants.size > 0) this.onPeerPresent();
   }
 
-  private async getMic(): Promise<MediaStream> {
-    this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    return this.localStream;
+  // Both peers are now in the room — the call is live.
+  private onPeerPresent() {
+    if (this.state === "connected") return;
+    this.state = "connected";
+    if (!this.startedAt) {
+      this.startedAt = Date.now();
+      // Tell the server whether to record this call (employer/god only).
+      if (this.canRecord) this.sendRecordControl();
+    }
+    this.emit();
   }
 
   /** Outgoing call to a peer user. */
@@ -122,37 +117,26 @@ class CallManager {
     this.startedAt = 0;
     this.emit();
 
-    const stream = await this.getMic();
-    this.pc = await this.newPeer(peerId, callId);
-    stream.getTracks().forEach((t) => this.pc!.addTrack(t, stream));
-
-    const offer = await this.pc.createOffer();
-    await this.pc.setLocalDescription(offer);
-    realtime.send({ type: "call-offer", to: peerId, call_id: callId, payload: { sdp: offer } });
+    // Ring the callee (also persists the call row + fires a push).
+    realtime.send({ type: "call-offer", to: peerId, call_id: callId });
+    try {
+      await this.joinRoom(callId);
+    } catch {
+      this.hangup();
+    }
   }
 
   /** Accept an incoming call. */
   async accept() {
-    if (this.state !== "incoming" || !this.info || !this.pendingOffer) return;
+    if (this.state !== "incoming" || !this.info) return;
     this.state = "connecting";
     this.emit();
-
-    const stream = await this.getMic();
-    this.pc = await this.newPeer(this.info.peerId, this.info.callId);
-    stream.getTracks().forEach((t) => this.pc!.addTrack(t, stream));
-
-    await this.pc.setRemoteDescription(this.pendingOffer);
-    for (const c of this.pendingCandidates) await this.pc.addIceCandidate(c).catch(() => {});
-    this.pendingCandidates = [];
-
-    const answer = await this.pc.createAnswer();
-    await this.pc.setLocalDescription(answer);
-    realtime.send({
-      type: "call-accept",
-      to: this.info.peerId,
-      call_id: this.info.callId,
-      payload: { sdp: answer },
-    });
+    realtime.send({ type: "call-accept", to: this.info.peerId, call_id: this.info.callId });
+    try {
+      await this.joinRoom(this.info.callId);
+    } catch {
+      this.hangup();
+    }
   }
 
   /** Reject an incoming call. */
@@ -174,11 +158,11 @@ class CallManager {
 
   toggleMute() {
     this.muted = !this.muted;
-    this.localStream?.getAudioTracks().forEach((t) => (t.enabled = !this.muted));
+    void this.room?.localParticipant.setMicrophoneEnabled(!this.muted);
     this.emit();
   }
 
-  /** Toggle remote audio output (speaker). The UI mutes the <audio> element. */
+  /** Toggle remote audio output (speaker). The UI routes the <audio> element. */
   toggleSpeaker() {
     this.speakerOn = !this.speakerOn;
     this.emit();
@@ -207,15 +191,9 @@ class CallManager {
   }
 
   private cleanup(state: CallState) {
-    this.pc?.close();
-    this.pc = null;
-    this.recordPc?.close();
-    this.recordPc = null;
-    this.localStream?.getTracks().forEach((t) => t.stop());
-    this.localStream = null;
+    this.room?.disconnect();
+    this.room = null;
     this.remoteStream = null;
-    this.pendingOffer = null;
-    this.pendingCandidates = [];
     this.muted = false;
     this.speakerOn = true;
     this.startedAt = 0;
@@ -231,8 +209,7 @@ class CallManager {
     }, 1500);
   }
 
-  private async onSignal(env: Envelope) {
-    const p = env.payload as { sdp?: RTCSessionDescriptionInit } & RTCIceCandidateInit;
+  private onSignal(env: Envelope) {
     switch (env.type) {
       case "call-offer": {
         // Busy or mid-call: auto-reject.
@@ -246,25 +223,15 @@ class CallManager {
           peerName: "Incoming call",
           outgoing: false,
         };
-        this.pendingOffer = p?.sdp || null;
         this.state = "incoming";
         this.emit();
         break;
       }
       case "call-accept": {
-        if (this.pc && p?.sdp) {
-          await this.pc.setRemoteDescription(p.sdp);
+        // The callee accepted; surface "connecting" until their media arrives.
+        if (this.state === "calling") {
           this.state = "connecting";
           this.emit();
-        }
-        break;
-      }
-      case "ice-candidate": {
-        const cand = env.payload as RTCIceCandidateInit;
-        if (this.pc && this.pc.remoteDescription) {
-          await this.pc.addIceCandidate(cand).catch(() => {});
-        } else if (cand) {
-          this.pendingCandidates.push(cand);
         }
         break;
       }
@@ -276,41 +243,7 @@ class CallManager {
         }
         break;
       }
-      case "record-offer": {
-        await this.onRecordOffer(env);
-        break;
-      }
-      case "record-ice": {
-        const cand = (env.payload as RTCIceCandidateInit);
-        if (this.recordPc && cand) await this.recordPc.addIceCandidate(cand).catch(() => {});
-        break;
-      }
     }
-  }
-
-  // The server recorder bot offered a recv-only peer; answer it with our mic so
-  // the conversation is captured server-side.
-  private async onRecordOffer(env: Envelope) {
-    if (!this.localStream) return; // no active mic -> nothing to record
-    const callId = env.call_id || "";
-    const p = env.payload as { sdp?: RTCSessionDescriptionInit };
-    if (!p?.sdp) return;
-
-    // A new offer supersedes any prior recorder session (e.g. admin toggled
-    // recording off then on again) — drop the stale peer first.
-    this.recordPc?.close();
-    const pc = new RTCPeerConnection({ iceServers: await this.iceServers() });
-    this.recordPc = pc;
-    pc.onicecandidate = (e) => {
-      if (e.candidate) {
-        realtime.send({ type: "record-ice", call_id: callId, payload: e.candidate.toJSON() });
-      }
-    };
-    this.localStream.getTracks().forEach((t) => pc.addTrack(t, this.localStream!));
-    await pc.setRemoteDescription(p.sdp);
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    realtime.send({ type: "record-answer", call_id: callId, payload: { sdp: answer } });
   }
 }
 

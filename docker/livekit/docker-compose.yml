@@ -1,0 +1,49 @@
+# Production LiveKit stack for voice calls (+ optional recording).
+#
+#   # set the key/secret pair once (must match apps/api/.env LIVEKIT_API_*)
+#   export LIVEKIT_API_KEY=...   LIVEKIT_API_SECRET=...
+#
+#   docker compose -f docker/livekit/docker-compose.yml up -d            # calls
+#   docker compose -f docker/livekit/docker-compose.yml --profile recording up -d   # + recording
+#
+# LiveKit uses the host network (the documented recommendation) so its WebRTC UDP
+# range and TCP port are reachable without mapping hundreds of ports. Open these
+# on the VPS firewall:  udp 50000-50100, tcp 7881.  Port 7880 (signaling) is
+# fronted by your host nginx over TLS — see README.md.
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: livekit
+    restart: unless-stopped
+    network_mode: host
+    command: --config /etc/livekit.yaml
+    environment:
+      # "key: secret" — keeps the secret out of livekit.yaml.
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+
+  redis:
+    image: redis:7-alpine
+    container_name: livekit-redis
+    restart: unless-stopped
+    network_mode: host # listens on 127.0.0.1:6379 (see redis.conf bind below)
+    command: redis-server --bind 127.0.0.1 --save "" --appendonly no
+
+  # Recording (Chromium-based room egress → DO Spaces). Optional; only starts with
+  # `--profile recording`. SYS_ADMIN lets Chromium run its sandbox.
+  egress:
+    image: livekit/egress:latest
+    container_name: livekit-egress
+    restart: unless-stopped
+    profiles: ["recording"]
+    network_mode: host
+    cap_add:
+      - SYS_ADMIN
+    environment:
+      EGRESS_CONFIG_FILE: /etc/egress.yaml
+    volumes:
+      - ./egress.yaml:/etc/egress.yaml:ro
+    depends_on:
+      - redis
+      - livekit

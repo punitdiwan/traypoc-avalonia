@@ -1,0 +1,20 @@
+# Standalone LiveKit server — for evaluating idle/under-load memory on the VPS.
+# Isolated from the app stack on purpose; tear down with `docker compose down`.
+#
+#   docker compose -f docker/livekit-test/docker-compose.yml up
+#   docker stats livekit-test            # watch memory in another shell
+#
+# Dev mode bakes in API key/secret (devkey / secret) and an embedded
+# single-node setup — no Redis, no config file needed just to measure footprint.
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: livekit-test
+    command: --dev --bind 0.0.0.0
+    # mem_limit lets you see how it behaves under a cap; remove to see free usage.
+    # mem_limit: 256m
+    ports:
+      - "7880:7880"          # HTTP/WebSocket signaling + API
+      - "7881:7881"          # WebRTC over TCP (fallback)
+      - "7882:7882/udp"      # single-port UDP mux (dev mode uses one port)
+    restart: unless-stopped

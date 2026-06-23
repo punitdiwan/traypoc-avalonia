@@ -446,6 +446,9 @@ export const callsApi = {
   list: (userId?: string) =>
     request<Call[]>(`/calls${userId ? `?user_id=${userId}` : ""}`),
   iceServers: () => request<{ ice_servers: IceServer[] }>("/turn-credentials"),
+  // LiveKit join token for a call's room. `url` is the wss endpoint to connect to.
+  livekitToken: (room: string) =>
+    request<{ url: string; token: string }>(`/livekit/token?room=${encodeURIComponent(room)}`),
 };
 
 export const messagesApi = {

@@ -105,19 +105,37 @@ func main() {
 	turnH := handlers.NewTURNHandler()
 	pushH := handlers.NewPushHandler(pool)
 
-	// Realtime signaling hub (voice-call + chat). Pushes ring closed PWAs; the
-	// recorder bot captures answered calls to Spaces.
+	// LiveKit SFU: when LIVEKIT_* is set, calls run over a LiveKit room instead of
+	// the legacy P2P mesh + Pion recorder bot. The hub still rings the callee.
+	livekitH, livekitOn := handlers.NewLiveKitHandler(pool, os.Getenv, spacesConfig)
+
+	// Realtime signaling hub (voice-call + chat). Pushes ring closed PWAs.
 	pushSender := push.NewSender(pool)
 	hub := realtime.NewHub(pool)
 	hub.OnRing = pushSender.RingCall
 
-	rec := recorder.NewManager(pool, spacesClient, hub.SendEnvelope)
-	if rec.Enabled() {
-		hub.OnRecord = rec.Start
-		hub.OnRecordSignal = rec.HandleSignal
-		hub.OnRecordEnd = rec.Stop
-	} else {
-		log.Println("DO_SPACES_* not configured — call recording disabled")
+	switch {
+	case livekitOn && livekitH.RecordingEnabled():
+		// LiveKit Egress records the room server-side; the employer's record
+		// toggle drives it through the same OnRecord/OnRecordEnd hooks.
+		hub.OnRecord = livekitH.StartRecording
+		hub.OnRecordEnd = livekitH.StopRecording
+		log.Println("call recording: LiveKit Egress")
+	case livekitOn:
+		log.Println("call recording disabled (set LIVEKIT_RECORD=1 + DO_SPACES_* to enable Egress)")
+	default:
+		// Legacy mesh path: the in-process Pion bot joins each call recv-only.
+		rec := recorder.NewManager(pool, spacesClient, hub.SendEnvelope)
+		if rec.Enabled() {
+			hub.OnRecord = rec.Start
+			hub.OnRecordSignal = rec.HandleSignal
+			hub.OnRecordEnd = rec.Stop
+		} else {
+			log.Println("DO_SPACES_* not configured — call recording disabled")
+		}
+	}
+	if livekitOn {
+		log.Printf("LiveKit calls enabled (%s)", os.Getenv("LIVEKIT_URL"))
 	}
 
 	r := chi.NewRouter()
@@ -169,6 +187,9 @@ func main() {
 		r.Get("/calls", callH.List)
 		r.Get("/messages", messageH.List)
 		r.Get("/turn-credentials", turnH.Get)
+		if livekitOn {
+			r.Get("/livekit/token", livekitH.Token)
+		}
 		r.Get("/push/public-key", pushH.PublicKey)
 		r.Post("/push/subscribe", pushH.Subscribe)
 

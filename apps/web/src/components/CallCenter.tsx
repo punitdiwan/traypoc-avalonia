@@ -46,9 +46,15 @@ export default function CallCenter() {
     }
   });
 
-  // Speaker on/off — mute the output element without dropping the stream.
+  // Speaker on/off — route the remote audio to loudspeaker vs earpiece. We must
+  // NOT mute (that kills the voice); instead we pick the output device. Only
+  // platforms that expose setSinkId (e.g. Android Chrome, desktop) can switch —
+  // elsewhere the audio simply keeps playing on the default route.
   useEffect(() => {
-    if (audioRef.current) audioRef.current.muted = !call.speakerOn;
+    const el = audioRef.current;
+    if (!el) return;
+    el.muted = false;
+    void applyAudioOutput(el, call.speakerOn);
   }, [call.speakerOn, call.remoteStream]);
 
   const elapsed = useElapsed(call.state === "connected", call.startedAt);
@@ -142,6 +148,34 @@ export default function CallCenter() {
       </div>
     </>
   );
+}
+
+// setSinkId is the only standard web hook for choosing an audio output device.
+// It's absent on iOS Safari (audio stays on the default route there). When
+// present, we try to pick the loudspeaker (speaker on) or the earpiece/receiver
+// (speaker off). Device labels require a prior getUserMedia grant, which an
+// active call already has.
+type SinkCapableAudio = HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
+
+async function applyAudioOutput(el: HTMLAudioElement, speakerOn: boolean) {
+  const audio = el as SinkCapableAudio;
+  if (typeof audio.setSinkId !== "function") return; // unsupported -> default route
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const outputs = devices.filter((d) => d.kind === "audiooutput");
+    if (outputs.length === 0) return;
+    const label = (d: MediaDeviceInfo) => d.label.toLowerCase();
+    const target = speakerOn
+      ? outputs.find((d) => /speaker|speakerphone/.test(label(d))) ??
+        outputs.find((d) => d.deviceId === "default") ??
+        outputs[0]
+      : outputs.find((d) => /earpiece|earphone|receiver/.test(label(d))) ??
+        outputs.find((d) => d.deviceId === "communications") ??
+        outputs[0];
+    if (target) await audio.setSinkId(target.deviceId);
+  } catch {
+    // No permission / unsupported sink — leave the audio on its default route.
+  }
 }
 
 function ToggleButton({

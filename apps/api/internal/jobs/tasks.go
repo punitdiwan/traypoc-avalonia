@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	TypeWeeklyReportDispatch = "report:dispatch"
-	TypeWeeklyReport         = "report:weekly"
-	TypeThumbnail            = "screenshot:thumbnail"
+	TypeWeeklyReportDispatch  = "report:dispatch"
+	TypeWeeklyReport          = "report:weekly"
+	TypeThumbnail             = "screenshot:thumbnail"
+	TypeTimesheetAutoApprove  = "timesheet:auto-approve"
 )
 
 // ── Payloads ──────────────────────────────────────────────────────────────────
@@ -104,6 +105,27 @@ func MakeWeeklyReportHandler(db *pgxpool.Pool) asynq.HandlerFunc {
 		}
 
 		log.Printf("[jobs] weekly report sent to %s (%.1fh total)", p.Email, data.TotalHours)
+		return nil
+	}
+}
+
+// MakeTimesheetAutoApproveHandler approves all submitted timesheets whose week
+// ended on or before yesterday (i.e. the Sunday has passed). Runs daily at
+// 00:05 UTC so any week whose Sunday just ended gets auto-approved on Monday.
+func MakeTimesheetAutoApproveHandler(db *pgxpool.Pool) asynq.HandlerFunc {
+	return func(ctx context.Context, t *asynq.Task) error {
+		tag, err := db.Exec(ctx, `
+			UPDATE timesheets
+			SET status        = 'approved',
+			    auto_approved = true,
+			    reviewed_at   = NOW()
+			WHERE status     = 'submitted'
+			  AND week_start + INTERVAL '6 days' < CURRENT_DATE
+		`)
+		if err != nil {
+			return fmt.Errorf("auto-approve timesheets: %w", err)
+		}
+		log.Printf("[jobs] auto-approved %d timesheets", tag.RowsAffected())
 		return nil
 	}
 }

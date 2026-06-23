@@ -1,0 +1,23 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="TrayPoc.Views.ManualPlaceholder">
+    <!-- Desktop twin of the web /manual-screenshot.svg placeholder: a dark card with a
+         clock glyph + "MANUAL TIME / No screenshot captured", scaled to fill its host. -->
+    <Border Background="#1e293b">
+        <Viewbox Stretch="Uniform" Margin="6">
+            <StackPanel Width="220" Spacing="10" HorizontalAlignment="Center">
+                <Panel Width="56" Height="56" HorizontalAlignment="Center">
+                    <Ellipse Width="56" Height="56" Stroke="#94a3b8" StrokeThickness="5"/>
+                    <Path Stroke="#94a3b8" StrokeThickness="5"
+                          StrokeLineCap="Round" StrokeJoin="Round"
+                          Data="M 28,14 L 28,28 L 40,38"/>
+                </Panel>
+                <TextBlock Text="MANUAL TIME" FontSize="24" FontWeight="SemiBold"
+                           Foreground="#cbd5e1" LetterSpacing="2"
+                           HorizontalAlignment="Center"/>
+                <TextBlock Text="No screenshot captured" FontSize="14"
+                           Foreground="#64748b" HorizontalAlignment="Center"/>
+            </StackPanel>
+        </Viewbox>
+    </Border>
+</UserControl>

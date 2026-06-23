@@ -26,6 +26,13 @@ func seedUsers() []SeedUser {
 	}
 	return []SeedUser{
 		{
+			// God super-admin: no organization, unrestricted cross-tenant access.
+			Email:    get("SEED_GOD_EMAIL", "punitdiwan@gmail.com"),
+			Password: get("SEED_GOD_PASSWORD", "God1234!"),
+			Role:     "god",
+			CanTrack: false,
+		},
+		{
 			Email:    get("SEED_EMPLOYER_EMAIL", "admin@example.com"),
 			Password: get("SEED_EMPLOYER_PASSWORD", "Admin1234!"),
 			Role:     "employer",

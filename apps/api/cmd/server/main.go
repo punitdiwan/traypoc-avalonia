@@ -20,6 +20,9 @@ import (
 	"time-tracker/api/internal/jobs"
 	mw "time-tracker/api/internal/middleware"
 	"time-tracker/api/internal/models"
+	"time-tracker/api/internal/push"
+	"time-tracker/api/internal/realtime"
+	"time-tracker/api/internal/recorder"
 	"time-tracker/api/internal/spaces"
 )
 
@@ -48,6 +51,11 @@ func main() {
 
 	if err := db.Seed(ctx, pool); err != nil {
 		log.Fatalf("seed: %v", err)
+	}
+
+	// One-time fold of pre-multi-tenant data into a Default Organization.
+	if err := db.BackfillDefaultOrg(ctx, pool); err != nil {
+		log.Fatalf("backfill default org: %v", err)
 	}
 
 	redisAddr := os.Getenv("REDIS_URL")
@@ -83,15 +91,42 @@ func main() {
 	projH := handlers.NewProjectHandler(pool)
 	diaryH := handlers.NewDiaryHandler(pool)
 	userH := handlers.NewUserHandler(pool)
+	overviewH := handlers.NewOverviewHandler(pool)
+	invoiceH := handlers.NewInvoiceHandler(pool)
 	uploadH := handlers.NewUploadHandler(spacesClient)
+	adminH := handlers.NewAdminHandler(pool)
+	policyH := handlers.NewPolicyHandler(pool)
+	appCatH := handlers.NewAppCategoryHandler(pool)
+	timesheetH := handlers.NewTimesheetHandler(pool)
+	previewH := handlers.NewTimesheetPreviewHandler(pool)
+	claimH := handlers.NewClaimHandler(pool)
+	callH := handlers.NewCallHandler(pool)
+	messageH := handlers.NewMessageHandler(pool)
+	turnH := handlers.NewTURNHandler()
+	pushH := handlers.NewPushHandler(pool)
+
+	// Realtime signaling hub (voice-call + chat). Pushes ring closed PWAs; the
+	// recorder bot captures answered calls to Spaces.
+	pushSender := push.NewSender(pool)
+	hub := realtime.NewHub(pool)
+	hub.OnRing = pushSender.RingCall
+
+	rec := recorder.NewManager(pool, spacesClient, hub.SendEnvelope)
+	if rec.Enabled() {
+		hub.OnRecord = rec.Start
+		hub.OnRecordSignal = rec.HandleSignal
+		hub.OnRecordEnd = rec.Stop
+	} else {
+		log.Println("DO_SPACES_* not configured — call recording disabled")
+	}
 
 	r := chi.NewRouter()
 	r.Use(chiMiddleware.Logger)
 	r.Use(chiMiddleware.Recoverer)
 	allowedOrigins := []string{
-		"http://localhost:5173",  // web dashboard dev
-		"http://localhost:1420",  // Tauri desktop dev (Vite)
-		"tauri://localhost",      // Tauri desktop production (Windows/Linux)
+		"http://localhost:5173",   // web dashboard dev
+		"http://localhost:1420",   // Tauri desktop dev (Vite)
+		"tauri://localhost",       // Tauri desktop production (Windows/Linux)
 		"https://tauri.localhost", // Tauri desktop production (macOS/some Linux)
 	}
 	if origin := os.Getenv("CORS_ORIGIN"); origin != "" {
@@ -104,12 +139,18 @@ func main() {
 		AllowCredentials: true,
 	}))
 
+	// WebSocket signaling for calls + chat. Self-authenticates via the `token`
+	// query param (browsers can't set WS headers), so it sits outside RequireAuth.
+	r.Get("/ws", hub.ServeWS)
+
 	// Auth — public
 	r.Route("/auth", func(r chi.Router) {
 		r.Post("/register", authH.Register)
 		r.Post("/login", authH.Login)
 		r.Post("/refresh", authH.Refresh)
 		r.Post("/logout", authH.Logout)
+		r.Post("/forgot-password", authH.ForgotPassword)
+		r.Post("/reset-password", authH.ResetPassword)
 	})
 
 	// Protected routes
@@ -117,13 +158,28 @@ func main() {
 		r.Use(mw.RequireAuth)
 
 		r.Get("/auth/me", handlers.Me(pool))
+		r.Patch("/auth/me", authH.UpdateMe)
+		r.Patch("/auth/password", authH.ChangePassword)
+
+		// Live policy snapshot the desktop polls (can_track, allow_manual_time, rates).
+		r.Get("/me/policy", policyH.Get)
+
+		// Voice calls + chat (employer <-> employee). Signaling itself is over /ws;
+		// these are history/config/registration endpoints.
+		r.Get("/calls", callH.List)
+		r.Get("/messages", messageH.List)
+		r.Get("/turn-credentials", turnH.Get)
+		r.Get("/push/public-key", pushH.PublicKey)
+		r.Post("/push/subscribe", pushH.Subscribe)
 
 		// Time logs — employee can CRUD their own
 		r.Route("/time-logs", func(r chi.Router) {
 			r.Get("/", timeH.List)
+			r.Get("/ids", timeH.IDs)
 			r.Post("/", timeH.Create)
 			r.Delete("/", timeH.DeleteAll)
 			r.Get("/{id}", timeH.Get)
+			r.Patch("/{id}", timeH.Update)
 			r.Delete("/{id}", timeH.Delete)
 		})
 
@@ -134,17 +190,62 @@ func main() {
 		r.Route("/projects", func(r chi.Router) {
 			r.Get("/", projH.List)
 			r.With(mw.RequireRole(models.RoleEmployer)).Post("/", projH.Create)
+			r.With(mw.RequireRole(models.RoleEmployer)).Patch("/{id}", projH.Update)
+			r.With(mw.RequireRole(models.RoleEmployer)).Get("/{id}/members", projH.ListMembers)
 			r.With(mw.RequireRole(models.RoleEmployer)).Post("/{id}/members", projH.AddMember)
+			r.With(mw.RequireRole(models.RoleEmployer)).Delete("/{id}/members/{userId}", projH.RemoveMember)
 			r.Get("/{id}/tasks", projH.ListTasks)
 			r.With(mw.RequireRole(models.RoleEmployer)).Post("/{id}/tasks", projH.CreateTask)
 		})
 
-		// Diary — employer only
-		r.With(mw.RequireRole(models.RoleEmployer)).Get("/diary/{userId}", diaryH.Get)
+		// Diary — employer reads any employee in their org; an employee reads only
+		// their own (authorization is enforced inside the handler).
+		r.Get("/diary/{userId}", diaryH.Get)
 
-		// Users — employer manages employees
+		// Team overview — employer only
+		r.With(mw.RequireRole(models.RoleEmployer)).Get("/overview", overviewH.Get)
+
+		// Billable invoice (JSON + downloadable PDF). Access is enforced inside the
+		// handler: employer/god for any org employee, an employee for their own.
+		r.Get("/invoice", invoiceH.Get)
+		r.Get("/invoice.pdf", invoiceH.GetPDF)
+
+		// Users — employer manages employees in their own org
 		r.With(mw.RequireRole(models.RoleEmployer)).Get("/users", userH.List)
+		r.With(mw.RequireRole(models.RoleEmployer)).Post("/users", userH.Invite)
 		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/can-track", userH.SetCanTrack)
+		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/allow-manual-time", userH.SetAllowManualTime)
+		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/allow-delete", userH.SetAllowDelete)
+		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/require-notes", userH.SetRequireNotes)
+		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/rate", userH.SetRate)
+		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/name", userH.SetName)
+		r.With(mw.RequireRole(models.RoleEmployer)).Patch("/users/{id}/breaks", userH.SetBreaks)
+		r.With(mw.RequireRole(models.RoleEmployer)).Delete("/users/{id}/org", userH.Release)
+
+		// App categories — employer tags app names as productive/neutral/unproductive
+		r.With(mw.RequireRole(models.RoleEmployer)).Get("/app-categories", appCatH.List)
+		r.With(mw.RequireRole(models.RoleEmployer)).Put("/app-categories/{appName}", appCatH.Upsert)
+		r.With(mw.RequireRole(models.RoleEmployer)).Delete("/app-categories/{appName}", appCatH.Delete)
+
+		// Timesheets — weekly approval workflow (employee submits, employer approves)
+		r.Get("/timesheets", timesheetH.List)
+		r.Post("/timesheets", timesheetH.Create)
+		r.Post("/timesheets/{id}/submit", timesheetH.Submit)
+		r.Post("/timesheets/{id}/recall", timesheetH.Recall)
+		r.With(mw.RequireRole(models.RoleEmployer)).Post("/timesheets/{id}/approve", timesheetH.Approve)
+		r.With(mw.RequireRole(models.RoleEmployer)).Post("/timesheets/{id}/reject", timesheetH.Reject)
+		r.With(mw.RequireRole(models.RoleEmployer)).Get("/timesheet-preview", previewH.Get)
+
+		// Extra claims — employees raise reimbursement claims; employers approve/reject.
+		r.Get("/claims", claimH.List)
+		r.Post("/claims", claimH.Create)
+		r.Delete("/claims/{id}", claimH.Delete)
+		r.With(mw.RequireRole(models.RoleEmployer)).Post("/claims/{id}/approve", claimH.Approve)
+		r.With(mw.RequireRole(models.RoleEmployer)).Post("/claims/{id}/reject", claimH.Reject)
+
+		// God super-admin — cross-organization administration
+		r.With(mw.RequireGod).Get("/admin/orgs", adminH.ListOrgs)
+		r.With(mw.RequireGod).Post("/admin/orgs", adminH.CreateOrg)
 	})
 
 	addr := os.Getenv("PORT")

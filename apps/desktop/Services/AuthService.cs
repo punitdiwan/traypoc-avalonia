@@ -28,7 +28,9 @@ public sealed class AuthService
     public string RefreshToken => _auth.RefreshToken;
     public string UserId => _auth.UserId;
     public string UserEmail => _auth.UserEmail;
+    public string UserName => _auth.UserName;
     public string UserRole => _auth.UserRole;
+    public string OrgName => _auth.OrgName;
 
     /// <summary>Load any persisted session from disk.</summary>
     public void Initialize() => _auth = ConfigStore.LoadAuth();
@@ -67,6 +69,15 @@ public sealed class AuthService
         }
     }
 
+    /// <summary>Update the signed-in user's own full name via the API and persist it.</summary>
+    public async Task UpdateNameAsync(string fullName)
+    {
+        await _api.UpdateMeAsync(_auth.AccessToken, fullName);
+        _auth.UserName = fullName;
+        ConfigStore.SaveAuth(_auth);
+        AuthChanged?.Invoke();
+    }
+
     private void ApplyResult(LoginResult result)
     {
         _auth = new AuthConfig
@@ -75,7 +86,9 @@ public sealed class AuthService
             RefreshToken = result.RefreshToken,
             UserId = result.User.Id,
             UserEmail = result.User.Email,
+            UserName = result.User.FullName,
             UserRole = result.User.Role,
+            OrgName = result.User.OrgName,
         };
         ConfigStore.SaveAuth(_auth);
         // Keep user_id in AppConfig so the tracker can build upload paths.

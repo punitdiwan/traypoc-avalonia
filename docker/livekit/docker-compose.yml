@@ -23,12 +23,8 @@ services:
     volumes:
       - ./livekit.yaml:/etc/livekit.yaml:ro
 
-  redis:
-    image: redis:7-alpine
-    container_name: livekit-redis
-    restart: unless-stopped
-    network_mode: host # listens on 127.0.0.1:6379 (see redis.conf bind below)
-    command: redis-server --bind 127.0.0.1 --save "" --appendonly no
+  # No bundled Redis: LiveKit + egress reuse the existing external Redis at
+  # studio.maitretech.com:6379 (db 1) configured in livekit.yaml / egress.yaml.
 
   # Recording (Chromium-based room egress → DO Spaces). Optional; only starts with
   # `--profile recording`. SYS_ADMIN lets Chromium run its sandbox.
@@ -45,5 +41,4 @@ services:
     volumes:
       - ./egress.yaml:/etc/egress.yaml:ro
     depends_on:
-      - redis
       - livekit

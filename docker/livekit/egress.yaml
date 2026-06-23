@@ -5,7 +5,8 @@
 # It reaches the LiveKit server over Redis + ws_url. api_key/api_secret MUST match
 # LIVEKIT_KEYS in docker-compose.yml. Only needed when LIVEKIT_RECORD=1.
 redis:
-  address: 127.0.0.1:6379
+  address: studio.maitretech.com:6379
+  db: 1 # MUST match livekit.yaml so egress and the server find each other
 api_key: REPLACE_WITH_LIVEKIT_API_KEY
 api_secret: REPLACE_WITH_LIVEKIT_API_SECRET
 ws_url: ws://127.0.0.1:7880

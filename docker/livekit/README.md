@@ -9,7 +9,7 @@ still used to ring the callee; only the media path moved to LiveKit.
 | Piece | Where | Notes |
 |-------|-------|-------|
 | `livekit-server` | this VPS, host network | signaling on `:7880`, media on udp `50000-50100` + tcp `7881` |
-| `redis` | this VPS, `127.0.0.1:6379` | node store; required for egress |
+| Redis | **existing** `studio.maitretech.com:6379` (db 1) | reused; only needed for egress/multi-node |
 | `egress` (optional) | this VPS, host network | Chromium room recorder → DO Spaces |
 | API | existing api container | mints LiveKit JWTs + drives egress |
 | web | Vercel | `livekit-client` connects to `wss://livekit.<domain>` |
@@ -95,6 +95,9 @@ this is safe to roll out incrementally.
 - The recording `call_recordings` row is inserted when recording starts; the file
   appears after the call ends and egress finalizes (a few seconds). For robust
   status tracking, wire LiveKit's egress webhook later (phase 2).
-- `redis` runs on host networking bound to `127.0.0.1`; if the VPS already runs a
-  Redis on 6379, point both `livekit.yaml` and `egress.yaml` at that instead and
-  drop this service.
+- Redis is the **existing external** `studio.maitretech.com:6379`, isolated on
+  **db 1** (asynq uses db 0) — set in both `livekit.yaml` and `egress.yaml`. For
+  calls-only (no recording) you can comment the `redis:` block out of
+  `livekit.yaml` entirely; a single node doesn't need it.
+- If that Redis requires a password, add `password: ...` under the `redis:` block
+  in both files.

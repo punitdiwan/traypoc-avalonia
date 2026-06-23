@@ -15,10 +15,13 @@ rtc:
   port_range_end: 50100
   use_external_ip: true # auto-detect the VPS public IP for ICE candidates
 
-# Redis lets Egress talk to the server. Harmless for a single node; required once
-# you enable recording (the egress service joins over this same Redis).
+# Redis is only needed for Egress (recording) / multi-node — a single node does
+# calls without it. We reuse the existing shared Redis, isolated on db 1 so
+# LiveKit's keys don't collide with asynq (db 0). Comment this whole block out if
+# you only want calls (no recording).
 redis:
-  address: 127.0.0.1:6379
+  address: studio.maitretech.com:6379
+  db: 1
 
 logging:
   level: info

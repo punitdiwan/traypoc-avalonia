@@ -33,6 +33,12 @@ class CallManager {
   info: CallInfo | null = null;
   muted = false;
   startedAt = 0;
+  // Remote audio output (speaker) on/off — UI mutes the <audio> element.
+  speakerOn = true;
+  // Whether THIS client may control server-side recording (employer/god only),
+  // set by the UI after login, and the admin's current record preference.
+  canRecord = false;
+  recordEnabled = true;
 
   private pc: RTCPeerConnection | null = null;
   // Separate peer connection to the server-side recorder bot (send-only mic).
@@ -88,7 +94,12 @@ class CallManager {
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === "connected") {
         this.state = "connected";
-        if (!this.startedAt) this.startedAt = Date.now();
+        if (!this.startedAt) {
+          this.startedAt = Date.now();
+          // Now that both sides have a live mic, the admin tells the server
+          // whether to spin up the recorder bot for this call.
+          if (this.canRecord) this.sendRecordControl();
+        }
         this.emit();
       } else if (["failed", "disconnected", "closed"].includes(pc.connectionState)) {
         if (this.state !== "ended") this.cleanup("ended");
@@ -167,6 +178,34 @@ class CallManager {
     this.emit();
   }
 
+  /** Toggle remote audio output (speaker). The UI mutes the <audio> element. */
+  toggleSpeaker() {
+    this.speakerOn = !this.speakerOn;
+    this.emit();
+  }
+
+  /** Admin-only: enable/disable server-side recording for the active call. */
+  setRecordEnabled(enabled: boolean) {
+    this.recordEnabled = enabled;
+    this.emit();
+    if (this.canRecord && (this.state === "connected" || this.state === "connecting")) {
+      this.sendRecordControl();
+    }
+  }
+
+  toggleRecord() {
+    this.setRecordEnabled(!this.recordEnabled);
+  }
+
+  private sendRecordControl() {
+    if (!this.info) return;
+    realtime.send({
+      type: "record-control",
+      call_id: this.info.callId,
+      payload: { enabled: this.recordEnabled },
+    });
+  }
+
   private cleanup(state: CallState) {
     this.pc?.close();
     this.pc = null;
@@ -178,6 +217,7 @@ class CallManager {
     this.pendingOffer = null;
     this.pendingCandidates = [];
     this.muted = false;
+    this.speakerOn = true;
     this.startedAt = 0;
     this.state = state;
     this.emit();
@@ -256,6 +296,9 @@ class CallManager {
     const p = env.payload as { sdp?: RTCSessionDescriptionInit };
     if (!p?.sdp) return;
 
+    // A new offer supersedes any prior recorder session (e.g. admin toggled
+    // recording off then on again) — drop the stale peer first.
+    this.recordPc?.close();
     const pc = new RTCPeerConnection({ iceServers: await this.iceServers() });
     this.recordPc = pc;
     pc.onicecandidate = (e) => {

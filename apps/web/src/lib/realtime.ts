@@ -18,7 +18,9 @@ export type EnvelopeType =
   // Recorder-bot signaling (server-side recording peer).
   | "record-offer"
   | "record-answer"
-  | "record-ice";
+  | "record-ice"
+  // Admin (employer) toggles server-side recording on/off for the call.
+  | "record-control";
 
 export interface Envelope {
   type: EnvelopeType;

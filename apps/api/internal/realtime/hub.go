@@ -48,6 +48,8 @@ const (
 	TypeRecordOffer  = "record-offer"
 	TypeRecordAnswer = "record-answer"
 	TypeRecordICE    = "record-ice"
+	// Employer/god toggles server-side recording for a call on or off.
+	TypeRecordControl = "record-control"
 )
 
 // Client is a single live WebSocket connection.
@@ -167,6 +169,9 @@ func (h *Hub) handleInbound(ctx context.Context, sender *Client, env *Envelope) 
 			h.OnRecordSignal(ctx, env.CallID, sender.userID, env.Type, env.Payload)
 		}
 		return
+	case TypeRecordControl:
+		h.handleRecordControl(ctx, sender, env)
+		return
 	}
 
 	if env.To == "" {
@@ -198,9 +203,8 @@ func (h *Hub) handleInbound(ctx context.Context, sender *Client, env *Envelope) 
 
 	case TypeCallAccept:
 		_ = h.markAnswered(ctx, env.CallID)
-		if h.OnRecord != nil && env.CallID != "" {
-			h.OnRecord(ctx, env.CallID, sender.orgID)
-		}
+		// Recording no longer starts automatically — the employer's client opts
+		// in via a record-control message (see handleRecordControl).
 		h.relay(env)
 
 	case TypeCallReject:
@@ -235,6 +239,41 @@ func (h *Hub) endRecording(callID string) {
 	if h.OnRecordEnd != nil && callID != "" {
 		h.OnRecordEnd(callID)
 	}
+}
+
+// handleRecordControl starts or stops the recorder bot for a call. Only the
+// employer (or god) side may control it, and only for a call they're part of.
+func (h *Hub) handleRecordControl(ctx context.Context, sender *Client, env *Envelope) {
+	if env.CallID == "" {
+		return
+	}
+	if sender.role != models.RoleEmployer && sender.role != models.RoleGod {
+		return
+	}
+	if sender.role != models.RoleGod && !h.isParticipant(ctx, env.CallID, sender.userID) {
+		return
+	}
+	var ctrl struct {
+		Enabled bool `json:"enabled"`
+	}
+	_ = json.Unmarshal(env.Payload, &ctrl)
+	if ctrl.Enabled {
+		if h.OnRecord != nil {
+			h.OnRecord(ctx, env.CallID, sender.orgID)
+		}
+	} else {
+		h.endRecording(env.CallID)
+	}
+}
+
+// isParticipant reports whether userID is the caller or callee of callID.
+func (h *Hub) isParticipant(ctx context.Context, callID, userID string) bool {
+	var one int
+	err := h.db.QueryRow(ctx,
+		`SELECT 1 FROM calls WHERE id = $1 AND (caller_id = $2 OR callee_id = $2)`,
+		callID, userID,
+	).Scan(&one)
+	return err == nil
 }
 
 func (h *Hub) relay(env *Envelope) {

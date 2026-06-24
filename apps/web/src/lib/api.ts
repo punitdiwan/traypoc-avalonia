@@ -455,6 +455,18 @@ export const messagesApi = {
   // Chat history with another user (marks incoming as read server-side).
   list: (withUserId: string) =>
     request<Message[]>(`/messages?with=${withUserId}`),
+  // Persist a message; returns the stored row (canonical id/timestamp) which the
+  // sender then broadcasts over LiveKit data messaging.
+  send: (to: string, body: string) =>
+    request<Message>("/messages", { method: "POST", body: JSON.stringify({ to, body }) }),
+  // LiveKit join token for the 1:1 chat room. Employees omit `with` (their own
+  // inbox); employers pass the employee id.
+  token: (withUserId?: string) =>
+    request<{ url: string; token: string; room: string }>(
+      `/messages/token${withUserId ? `?with=${encodeURIComponent(withUserId)}` : ""}`,
+    ),
+  // The org's primary employer, so an employee knows who to address.
+  admin: () => request<{ id: string; full_name: string; email: string }>("/messages/admin"),
 };
 
 export const pushApi = {

@@ -19,6 +19,7 @@ import EmployeeDashboard from "./pages/EmployeeDashboard";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ToastContainer from "./components/ToastContainer";
 import CallCenter from "./components/CallCenter";
+import ChatCenter from "./components/ChatCenter";
 import { useAuthStore } from "./lib/auth";
 import { useThemeStore } from "./lib/theme";
 
@@ -55,6 +56,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <QueryClientProvider client={queryClient}>
       <ToastContainer />
       <CallCenter />
+      <ChatCenter />
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />

@@ -29,10 +29,12 @@ export async function setupPush(): Promise<void> {
   }
   registered = true;
 
-  // Forward SW notification clicks (Accept/Decline) to the app.
+  // Forward SW notification clicks (Accept/Decline) and chat alerts to the app.
   navigator.serviceWorker.addEventListener("message", (e) => {
     if (e.data?.type === "call-notification") {
       window.dispatchEvent(new CustomEvent("call-notification", { detail: e.data }));
+    } else if (e.data?.type === "chat-notification") {
+      window.dispatchEvent(new CustomEvent("chat-notification", { detail: e.data }));
     }
   });
 

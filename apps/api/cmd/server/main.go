@@ -101,16 +101,19 @@ func main() {
 	previewH := handlers.NewTimesheetPreviewHandler(pool)
 	claimH := handlers.NewClaimHandler(pool)
 	callH := handlers.NewCallHandler(pool)
-	messageH := handlers.NewMessageHandler(pool)
 	turnH := handlers.NewTURNHandler()
 	pushH := handlers.NewPushHandler(pool)
+
+	// Web Push sender: rings closed PWAs on calls and nudges recipients on new
+	// chat messages (employer background alerts).
+	pushSender := push.NewSender(pool)
+	messageH := handlers.NewMessageHandler(pool, pushSender)
 
 	// LiveKit SFU: when LIVEKIT_* is set, calls run over a LiveKit room instead of
 	// the legacy P2P mesh + Pion recorder bot. The hub still rings the callee.
 	livekitH, livekitOn := handlers.NewLiveKitHandler(pool, os.Getenv, spacesConfig)
 
 	// Realtime signaling hub (voice-call + chat). Pushes ring closed PWAs.
-	pushSender := push.NewSender(pool)
 	hub := realtime.NewHub(pool)
 	hub.OnRing = pushSender.RingCall
 
@@ -186,9 +189,13 @@ func main() {
 		// these are history/config/registration endpoints.
 		r.Get("/calls", callH.List)
 		r.Get("/messages", messageH.List)
+		r.Post("/messages", messageH.Create)
+		r.Get("/messages/admin", messageH.Admin)
 		r.Get("/turn-credentials", turnH.Get)
 		if livekitOn {
 			r.Get("/livekit/token", livekitH.Token)
+			// Chat over LiveKit data messaging needs a join token for the DM room.
+			r.Get("/messages/token", livekitH.MessagingToken)
 		}
 		r.Get("/push/public-key", pushH.PublicKey)
 		r.Post("/push/subscribe", pushH.Subscribe)

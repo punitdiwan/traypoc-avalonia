@@ -46,9 +46,32 @@ func (s *Sender) RingCall(ctx context.Context, calleeID, callerName, callID stri
 		"caller":  callerName,
 		"call_id": callID,
 	})
+	s.fanOut(ctx, calleeID, payload)
+}
 
+// RingMessage pushes a "new-message" notification to every device of
+// recipientID. The service worker surfaces it as a system notification when the
+// PWA is closed/backgrounded, or hands it to an open app for an in-app toast.
+// This is what gives the employer a background alert when an employee writes
+// while they aren't looking at the chat. Safe to call inline; swallows errors.
+func (s *Sender) RingMessage(ctx context.Context, recipientID, senderID, senderName, msgID, preview string) {
+	if !s.Enabled() {
+		return
+	}
+	payload, _ := json.Marshal(map[string]string{
+		"type": "new-message",
+		"from": senderID,
+		"name": senderName,
+		"id":   msgID,
+		"body": preview,
+	})
+	s.fanOut(ctx, recipientID, payload)
+}
+
+// fanOut delivers a payload to all of a user's push subscriptions.
+func (s *Sender) fanOut(ctx context.Context, userID string, payload []byte) {
 	rows, err := s.db.Query(ctx,
-		`SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = $1`, calleeID)
+		`SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = $1`, userID)
 	if err != nil {
 		return
 	}
@@ -61,7 +84,6 @@ func (s *Sender) RingCall(ctx context.Context, calleeID, callerName, callID stri
 		}
 	}
 	rows.Close()
-
 	for _, x := range subs {
 		s.send(ctx, x.endpoint, x.p256dh, x.auth, payload)
 	}

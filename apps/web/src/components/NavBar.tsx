@@ -5,6 +5,7 @@ import { useThemeStore } from "@/lib/theme";
 import { authApi } from "@/lib/api";
 import NameEditor from "@/components/NameEditor";
 import { useToastStore } from "@/lib/toast";
+import { chatManager } from "@/lib/chat";
 
 export default function NavBar() {
   const { user, setUser } = useAuthStore();
@@ -34,6 +35,7 @@ export default function NavBar() {
 
   const handleLogout = async () => {
     await authApi.logout();
+    chatManager.reset();
     setUser(null);
     navigate("/login");
   };

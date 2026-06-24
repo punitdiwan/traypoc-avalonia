@@ -33,6 +33,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	mw "time-tracker/api/internal/middleware"
+	"time-tracker/api/internal/models"
 	"time-tracker/api/internal/spaces"
 )
 
@@ -142,6 +143,59 @@ func (h *LiveKitHandler) Token(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]string{"url": h.publicURL, "token": tok})
+}
+
+// MessagingToken mints a data-only LiveKit join token for a 1:1 chat "inbox"
+// room. Chat between an employer and an employee both flows through a single
+// persistent room named after the *employee* ("dm-<employeeId>"): the employee
+// stays joined to their own inbox (so any admin message arrives + pops up), and
+// an employer joins that employee's inbox while a conversation is open.
+//
+// Room selection + authorization:
+//   - employee caller -> their own inbox ("dm-<self>"); no ?with needed.
+//   - employer caller -> requires ?with=<employeeId> in the same org.
+//   - god caller       -> requires ?with=<employeeId>, any org.
+//
+// The token grants data publish/subscribe but no media (chat carries no audio).
+func (h *LiveKitHandler) MessagingToken(w http.ResponseWriter, r *http.Request) {
+	me := mw.UserID(r)
+	myRole := mw.Role(r)
+
+	var employeeID string
+	if myRole == models.RoleEmployee {
+		employeeID = me
+	} else {
+		other := r.URL.Query().Get("with")
+		if other == "" {
+			http.Error(w, "with required", http.StatusBadRequest)
+			return
+		}
+		if myRole != models.RoleGod {
+			var ok bool
+			if err := h.db.QueryRow(r.Context(),
+				`SELECT EXISTS (SELECT 1 FROM users WHERE id = $1 AND org_id = $2 AND role = 'employee')`,
+				other, mw.OrgID(r),
+			).Scan(&ok); err != nil || !ok {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+		}
+		employeeID = other
+	}
+
+	room := "dm-" + employeeID
+	tok, err := h.buildToken(me, "", videoGrant{
+		Room:           room,
+		RoomJoin:       true,
+		CanPublish:     boolPtr(false), // chat is data-only, no media
+		CanSubscribe:   boolPtr(true),
+		CanPublishData: boolPtr(true),
+	}, 12*time.Hour)
+	if err != nil {
+		http.Error(w, "token error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]string{"url": h.publicURL, "token": tok, "room": room})
 }
 
 // --- Egress (server-side recording) ---
